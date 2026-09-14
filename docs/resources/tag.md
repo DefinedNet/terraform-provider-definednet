@@ -88,7 +88,7 @@ Required:
 Optional:
 
 - `allowed_role_id` (String) Only allow hosts with this role. Omit to allow every role.
-- `allowed_tags` (Set of String) Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. An empty set is rejected because the API treats it the same as omitting the attribute.
+- `allowed_tags` (Set of String) Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. An empty set means the same thing to the API as omitting the attribute and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
 - `description` (String) Optional description, at most 255 characters.
 - `port_range` (Attributes) Inclusive port range. Omit to allow every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
 

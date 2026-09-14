@@ -76,7 +76,8 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 		},
 		"allowed_tags": schema.SetAttribute{
 			MarkdownDescription: "Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. " +
-				"An empty set is rejected because the API treats it the same as omitting the attribute.",
+				"An empty set means the same thing to the API as omitting the attribute and is always reported back as null, " +
+				"so it is rejected to keep the plan and refreshed state in agreement.",
 			Optional:    true,
 			ElementType: types.StringType,
 			Validators: []validator.Set{

@@ -43,8 +43,10 @@ see the import examples in `docs/`.
 
 `firewall_rules` is a set: the API stores rules unordered and returns them
 sorted by CIDR and port, so ordering in configuration is irrelevant.
-`allowed_tags` must be omitted rather than set to `[]` to allow every tag, and
-`allowed_role_id` and `port_range` are omitted to allow every role or port.
+Omit `allowed_role_id`, `allowed_tags`, and `port_range` to allow every role,
+tag, or port. `allowed_tags = []` means the same thing to the API as omitting
+it, and the API always reports it back as null; the provider rejects an empty
+set so the plan and the refreshed state agree.
 
 ### Config overrides
 
