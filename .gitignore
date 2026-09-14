@@ -1,0 +1,8 @@
+/terraform-provider-definednet
+/dist/
+*.test
+*.out
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate*
+*.tfvars

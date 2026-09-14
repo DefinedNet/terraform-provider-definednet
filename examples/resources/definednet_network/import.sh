@@ -1,0 +1,1 @@
+terraform import definednet_network.main network-ZJOW3QUQUX5ZAVPVYRHDQUAEIY

@@ -1,0 +1,1 @@
+terraform import definednet_route.datacenter route-X47KHSCOSQJP5IOKNNKRRGHVAI
