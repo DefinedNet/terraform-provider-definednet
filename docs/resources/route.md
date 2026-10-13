@@ -62,7 +62,7 @@ resource "definednet_route" "datacenter" {
 
 Required:
 
-- `local_cidr` (String) IPv4 CIDR within `routable_cidrs` this rule applies to, or `ANY` for the whole route.
+- `local_cidr` (String) IPv4 CIDR overlapping one of `routable_cidrs` that this rule applies to, or `ANY` for the whole route.
 - `protocol` (String) Protocol to allow: `ANY`, `TCP`, `UDP`, or `ICMP`.
 
 Optional:

@@ -6,7 +6,10 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func init() { retryBackoff = time.Millisecond }
 
 func TestAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +43,6 @@ func TestRetryOnTooManyRequests(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
-			w.Header().Set("Retry-After", "0")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -58,6 +60,35 @@ func TestRetryOnTooManyRequests(t *testing.T) {
 	}
 	if role.ID != "role-A" || calls.Load() != 2 {
 		t.Fatalf("got role %+v after %d calls", role, calls.Load())
+	}
+}
+
+func TestRetryPolicyByMethod(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.CreateRole(context.Background(), RoleCreateRequest{Name: "x"}); err == nil {
+		t.Fatal("expected error")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("POST was sent %d times, want 1", got)
+	}
+
+	calls.Store(0)
+	if _, err := c.GetRole(context.Background(), "role-A"); err == nil {
+		t.Fatal("expected error")
+	}
+	if got := calls.Load(); got != maxAttempts {
+		t.Fatalf("GET was sent %d times, want %d", got, maxAttempts)
 	}
 }
 

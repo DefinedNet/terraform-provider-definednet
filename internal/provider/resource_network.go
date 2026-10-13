@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -74,11 +75,11 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Default:             stringdefault.StaticString(""),
 			},
 			"ipv4_cidr": schema.StringAttribute{
-				MarkdownDescription: "IPv4 prefix for the network, e.g. `100.100.0.0/22`. Omit for an IPv6-only network. " +
+				MarkdownDescription: "IPv4 prefix for the network, e.g. `100.100.0.0/22`: /8 to /30, inside private or CGNAT space. Omit for an IPv6-only network. " +
 					"An IPv4 prefix can be added to an existing IPv6-only network, but once set it cannot be changed or removed " +
 					"without replacing the network.",
 				Optional:   true,
-				Validators: []validator.String{stringvalidator.RegexMatches(ipv4CIDRRegexp, "must be an IPv4 network in CIDR form such as 100.100.0.0/22")},
+				Validators: []validator.String{ipv4PrefixValidator{minBits: 8, maxBits: 30, private: true}},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplaceIf(ipv4CIDRRequiresReplace,
 						"Changing or removing an existing IPv4 CIDR requires a new network.",
@@ -89,6 +90,7 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				MarkdownDescription: "Every prefix assigned to the network. IPv6-capable networks always include a generated IPv6 prefix.",
 				Computed:            true,
 				ElementType:         types.StringType,
+				PlanModifiers:       []planmodifier.List{cidrsUseStateUnlessIPv4Changes{}},
 			},
 			"cert_version": schema.Int64Attribute{
 				MarkdownDescription: "Nebula certificate version in use. Version 2 is required for IPv6.",
@@ -149,6 +151,31 @@ func ipv4CIDRRequiresReplace(_ context.Context, req planmodifier.StringRequest, 
 	resp.RequiresReplace = !req.PlanValue.Equal(req.StateValue)
 }
 
+// cidrsUseStateUnlessIPv4Changes keeps cidrs known during plan. The list only
+// changes when ipv4_cidr does; the IPv6 prefix is fixed at creation.
+type cidrsUseStateUnlessIPv4Changes struct{}
+
+func (cidrsUseStateUnlessIPv4Changes) Description(_ context.Context) string {
+	return "Uses the prior cidrs unless ipv4_cidr changes."
+}
+
+func (m cidrsUseStateUnlessIPv4Changes) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (cidrsUseStateUnlessIPv4Changes) PlanModifyList(ctx context.Context, req planmodifier.ListRequest, resp *planmodifier.ListResponse) {
+	if req.StateValue.IsNull() || !req.PlanValue.IsUnknown() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	var planned, prior types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("ipv4_cidr"), &planned)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("ipv4_cidr"), &prior)...)
+	if resp.Diagnostics.HasError() || !planned.Equal(prior) {
+		return
+	}
+	resp.PlanValue = req.StateValue
+}
+
 func (r *networkResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFromProviderData(req.ProviderData, &resp.Diagnostics)
 }
@@ -174,7 +201,7 @@ func (r *networkResource) Create(ctx context.Context, req resource.CreateRequest
 
 	network, err := r.client.CreateNetwork(ctx, body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create network", err.Error())
+		resp.Diagnostics.AddError("Unable to create network", fmt.Sprintf("network %q: %s", plan.Name.ValueString(), err))
 		return
 	}
 
@@ -194,7 +221,7 @@ func (r *networkResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read network", err.Error())
+		resp.Diagnostics.AddError("Unable to read network", fmt.Sprintf("network %q: %s", state.ID.ValueString(), err))
 		return
 	}
 
@@ -217,7 +244,7 @@ func (r *networkResource) Update(ctx context.Context, req resource.UpdateRequest
 		DisableManagedLighthouses: plan.DisableManagedLighthouses.ValueBool(),
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to update network", err.Error())
+		resp.Diagnostics.AddError("Unable to update network", fmt.Sprintf("network %q: %s", id, err))
 		return
 	}
 
@@ -226,7 +253,7 @@ func (r *networkResource) Update(ctx context.Context, req resource.UpdateRequest
 	if state.IPv4CIDR.IsNull() && !plan.IPv4CIDR.IsNull() {
 		network, err = r.client.AddNetworkCIDR(ctx, id, plan.IPv4CIDR.ValueString())
 		if err != nil {
-			resp.Diagnostics.AddError("Unable to add IPv4 CIDR to network", err.Error())
+			resp.Diagnostics.AddError("Unable to add IPv4 CIDR to network", fmt.Sprintf("network %q: %s", id, err))
 			return
 		}
 	}
@@ -243,7 +270,7 @@ func (r *networkResource) Delete(ctx context.Context, req resource.DeleteRequest
 
 	err := r.client.DeleteNetwork(ctx, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete network", err.Error())
+		resp.Diagnostics.AddError("Unable to delete network", fmt.Sprintf("network %q: %s", state.ID.ValueString(), err))
 	}
 }
 

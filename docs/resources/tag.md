@@ -57,8 +57,8 @@ resource "definednet_tag" "prod" {
 
 ### Optional
 
-- `after` (String) Position this tag after the named tag (higher precedence than it). Sent on create and on every update; the API does not report it back, so it is not detected as drift. Conflicts with `before`.
-- `before` (String) Position this tag before the named tag (lower precedence than it). Sent on create and on every update; the API does not report it back, so it is not detected as drift. Conflicts with `after`.
+- `after` (String) Position this tag after the named tag (higher precedence than it). Sent on create and whenever `before` or `after` changes; the API does not report it back, so it is not detected as drift. Conflicts with `before`.
+- `before` (String) Position this tag before the named tag (lower precedence than it). Sent on create and whenever `before` or `after` changes; the API does not report it back, so it is not detected as drift. Conflicts with `after`.
 - `config_overrides` (Attributes Set) Nebula config overrides applied to hosts with this tag. `value` is JSON, so use `jsonencode()`: `jsonencode("info")` for a string key, `jsonencode(4242)` for a number, `jsonencode(["10.0.0.1"])` for a list. (see [below for nested schema](#nestedatt--config_overrides))
 - `description` (String) Optional description, at most 255 characters.
 - `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this tag, in addition to their role's rules. At most 50. (see [below for nested schema](#nestedatt--firewall_rules))

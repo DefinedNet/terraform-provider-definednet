@@ -1,9 +1,13 @@
 package provider
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
 func TestNetworkResource(t *testing.T) {
@@ -13,6 +17,11 @@ func TestNetworkResource(t *testing.T) {
 	v6only := `
 resource "definednet_network" "n" {
   name = "Network1"
+}
+`
+	renamed := `
+resource "definednet_network" "n" {
+  name = "Network1 renamed"
 }
 `
 	addV4 := `
@@ -45,9 +54,20 @@ resource "definednet_network" "n" {
 		},
 		{importState: true, importResource: "definednet_network.n"},
 		{
+			// cidrs only changes with ipv4_cidr, so a rename plans it as known.
+			config: renamed,
+			planChecks: []plancheck.PlanCheck{
+				plancheck.ExpectResourceAction("definednet_network.n", plancheck.ResourceActionUpdate),
+				plancheck.ExpectKnownValue("definednet_network.n", tfjsonpath.New("cidrs"), knownvalue.ListSizeExact(1)),
+			},
+		},
+		{
 			// Adding an IPv4 prefix to a v6-only network is an in-place update.
-			config:     addV4,
-			planChecks: expectUpdate("definednet_network.n"),
+			config: addV4,
+			planChecks: []plancheck.PlanCheck{
+				plancheck.ExpectResourceAction("definednet_network.n", plancheck.ResourceActionUpdate),
+				plancheck.ExpectUnknownValue("definednet_network.n", tfjsonpath.New("cidrs")),
+			},
 			checks: []resource.TestCheckFunc{
 				resource.TestCheckResourceAttr("definednet_network.n", "name", "Network1 renamed"),
 				resource.TestCheckResourceAttr("definednet_network.n", "ipv4_cidr", "100.100.0.0/22"),
@@ -131,4 +151,32 @@ data "definednet_network" "x" {
 			},
 		},
 	})
+}
+
+func TestNetworkResource_RemovedOutOfBand(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	runRemovedOutOfBandTest(t, f, `
+resource "definednet_network" "n" {
+  name = "n"
+}`, "definednet_network.n", func() { clear(f.networks) })
+}
+
+func TestNetworkResource_Validation(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	steps := []testStep{}
+	for _, cidr := range []string{"100.100.0.1/22", "8.8.0.0/16", "10.0.0.0/31", "10.0.0.0/7", "999.0.0.0/8", "fd00::/64"} {
+		steps = append(steps, testStep{
+			config: fmt.Sprintf(`
+resource "definednet_network" "n" {
+  name      = "n"
+  ipv4_cidr = %q
+}`, cidr),
+			expectError: "Invalid CIDR",
+		})
+	}
+	runUnitTest(t, f, steps)
 }

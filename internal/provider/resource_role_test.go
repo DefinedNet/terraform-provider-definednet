@@ -135,27 +135,8 @@ func TestRoleResource_RemovedOutOfBand(t *testing.T) {
 	f := newFakeAPI()
 	defer f.Close()
 
-	cfg := providerConfig(f) + `
+	runRemovedOutOfBandTest(t, f, `
 resource "definednet_role" "r" {
   name = "r"
-}`
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testProviderFactories,
-		Steps: []resource.TestStep{
-			{Config: cfg},
-			{
-				// Deleting the role behind Terraform's back must plan a
-				// recreate rather than fail the refresh.
-				PreConfig: func() {
-					f.mu.Lock()
-					defer f.mu.Unlock()
-					for id := range f.roles {
-						delete(f.roles, id)
-					}
-				},
-				Config:           cfg,
-				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: expectCreate("definednet_role.r")},
-			},
-		},
-	})
+}`, "definednet_role.r", func() { clear(f.roles) })
 }

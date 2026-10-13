@@ -36,7 +36,7 @@ resource "definednet_network" "main" {
 - `curve` (String) Certificate curve: `25519` or `P256`. Defaults to the API's choice. Changing it forces a new network.
 - `description` (String) Optional description.
 - `disable_managed_lighthouses` (Boolean) Opt out of the managed lighthouse. Only set this if you run your own lighthouses. No effect on cert version 1 networks.
-- `ipv4_cidr` (String) IPv4 prefix for the network, e.g. `100.100.0.0/22`. Omit for an IPv6-only network. An IPv4 prefix can be added to an existing IPv6-only network, but once set it cannot be changed or removed without replacing the network.
+- `ipv4_cidr` (String) IPv4 prefix for the network, e.g. `100.100.0.0/22`: /8 to /30, inside private or CGNAT space. Omit for an IPv6-only network. An IPv4 prefix can be added to an existing IPv6-only network, but once set it cannot be changed or removed without replacing the network.
 - `lighthouses_as_relays` (Boolean) Configure the network's lighthouses, managed or self-hosted, as relays for hosts that cannot connect directly.
 
 ### Read-Only

@@ -100,9 +100,45 @@ resource "definednet_route" "r" {
 			config: `
 resource "definednet_route" "r" {
   name           = "r"
+  routable_cidrs = { "192.168.14.1/24" = {} }
+}`,
+			expectError: "no host bits set",
+		},
+		{
+			config: `
+resource "definednet_route" "r" {
+  name           = "r"
   firewall_rules = [{ local_cidr = "any", protocol = "ANY" }]
 }`,
-			expectError: "must be ANY or an IPv4 CIDR",
+			expectError: "must be ANY or an IPv4 network",
+		},
+		{
+			config: `
+resource "definednet_route" "r" {
+  name           = "r"
+  routable_cidrs = { "192.168.14.0/24" = {} }
+  firewall_rules = [{ local_cidr = "192.168.15.0/24", protocol = "ANY" }]
+}`,
+			expectError: "must overlap one of routable_cidrs",
+		},
+		{
+			config: `
+resource "definednet_route" "r" {
+  name           = "r"
+  routable_cidrs = { "192.168.14.0/24" = {} }
+  firewall_rules = [{ local_cidr = "ANY", protocol = "TCP", port_range = { from = 443, to = 80 } }]
+}`,
+			expectError: "Invalid port range",
 		},
 	})
+}
+
+func TestRouteResource_RemovedOutOfBand(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	runRemovedOutOfBandTest(t, f, `
+resource "definednet_route" "r" {
+  name = "r"
+}`, "definednet_route.r", func() { clear(f.routes) })
 }

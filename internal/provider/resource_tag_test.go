@@ -1,9 +1,13 @@
 package provider
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
+
+	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
 )
 
 func TestTagResource(t *testing.T) {
@@ -135,6 +139,62 @@ resource "definednet_tag" "t" {
   config_overrides = [{ key = "k", value = "not json" }]
 }`,
 			expectError: "(?s)Invalid JSON String Value",
+		},
+	})
+}
+
+func TestTagResource_RemovedOutOfBand(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	runRemovedOutOfBandTest(t, f, `
+resource "definednet_tag" "t" {
+  name = "a:b"
+}`, "definednet_tag.t", func() { clear(f.tags) })
+}
+
+func TestTagResource_PositionSentOnlyOnChange(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	cfg := func(description string) string {
+		return fmt.Sprintf(`
+resource "definednet_tag" "dev" {
+  name = "env:dev"
+}
+
+resource "definednet_tag" "prod" {
+  name        = "env:prod"
+  description = %q
+  before      = definednet_tag.dev.name
+}
+`, description)
+	}
+	lastPut := func(check func(client.TagUpdateRequest) error) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			req, ok := f.tagUpdates["env:prod"]
+			if !ok {
+				return fmt.Errorf("no PUT recorded for env:prod")
+			}
+			return check(req)
+		}
+	}
+
+	runUnitTest(t, f, []testStep{
+		{config: cfg("one")},
+		{
+			config: cfg("two"),
+			checks: []resource.TestCheckFunc{
+				lastPut(func(req client.TagUpdateRequest) error {
+					if req.Before != nil || req.After != nil {
+						return fmt.Errorf("unchanged position was re-sent: before=%v after=%v", req.Before, req.After)
+					}
+					return nil
+				}),
+				resource.TestCheckResourceAttr("definednet_tag.prod", "priority", "1"),
+			},
 		},
 	})
 }

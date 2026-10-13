@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -78,7 +79,7 @@ func (d *networkDataSource) Read(ctx context.Context, req datasource.ReadRequest
 	if !cfg.ID.IsNull() {
 		n, err := d.client.GetNetwork(ctx, cfg.ID.ValueString())
 		if err != nil {
-			resp.Diagnostics.AddError("Unable to read network", err.Error())
+			resp.Diagnostics.AddError("Unable to read network", fmt.Sprintf("network %q: %s", cfg.ID.ValueString(), err))
 			return
 		}
 		network = n
@@ -89,23 +90,13 @@ func (d *networkDataSource) Read(ctx context.Context, req datasource.ReadRequest
 			resp.Diagnostics.AddError("Unable to list networks", err.Error())
 			return
 		}
-		var matches []client.Network
-		for _, n := range all {
-			if n.Name == name {
-				matches = append(matches, n)
-			}
-		}
-		switch len(matches) {
-		case 0:
+		// Network names are unique within an organization.
+		i := slices.IndexFunc(all, func(n client.Network) bool { return n.Name == name })
+		if i < 0 {
 			resp.Diagnostics.AddError("Network not found", fmt.Sprintf("No network is named %q.", name))
 			return
-		case 1:
-			network = &matches[0]
-		default:
-			resp.Diagnostics.AddError("Multiple networks match",
-				fmt.Sprintf("%d networks are named %q; look the network up by id instead.", len(matches), name))
-			return
 		}
+		network = &all[i]
 	}
 
 	m, diags := flattenNetwork(ctx, network)

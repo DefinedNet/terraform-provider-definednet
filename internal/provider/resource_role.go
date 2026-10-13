@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -91,7 +92,7 @@ func (r *roleResource) Create(ctx context.Context, req resource.CreateRequest, r
 		FirewallRules: rules,
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create role", err.Error())
+		resp.Diagnostics.AddError("Unable to create role", fmt.Sprintf("role %q: %s", plan.Name.ValueString(), err))
 		return
 	}
 
@@ -111,7 +112,7 @@ func (r *roleResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read role", err.Error())
+		resp.Diagnostics.AddError("Unable to read role", fmt.Sprintf("role %q: %s", state.ID.ValueString(), err))
 		return
 	}
 
@@ -136,7 +137,7 @@ func (r *roleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		FirewallRules: rules,
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to update role", err.Error())
+		resp.Diagnostics.AddError("Unable to update role", fmt.Sprintf("role %q: %s", plan.ID.ValueString(), err))
 		return
 	}
 
@@ -152,7 +153,7 @@ func (r *roleResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 
 	err := r.client.DeleteRole(ctx, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete role", err.Error())
+		resp.Diagnostics.AddError("Unable to delete role", fmt.Sprintf("role %q: %s", state.ID.ValueString(), err))
 	}
 }
 

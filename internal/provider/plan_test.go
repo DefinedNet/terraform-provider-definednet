@@ -15,7 +15,3 @@ func expectUpdate(addr string) []plancheck.PlanCheck {
 func expectCreate(addr string) []plancheck.PlanCheck {
 	return []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionCreate)}
 }
-
-func expectNoop() []plancheck.PlanCheck {
-	return []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()}
-}

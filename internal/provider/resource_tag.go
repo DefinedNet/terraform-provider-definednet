@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
@@ -86,7 +87,7 @@ func (r *tagResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
 			},
 			"before": schema.StringAttribute{
-				MarkdownDescription: "Position this tag before the named tag (lower precedence than it). Sent on create and on every update; " +
+				MarkdownDescription: "Position this tag before the named tag (lower precedence than it). Sent on create and whenever `before` or `after` changes; " +
 					"the API does not report it back, so it is not detected as drift. Conflicts with `after`.",
 				Optional: true,
 				Validators: []validator.String{
@@ -95,7 +96,7 @@ func (r *tagResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				},
 			},
 			"after": schema.StringAttribute{
-				MarkdownDescription: "Position this tag after the named tag (higher precedence than it). Sent on create and on every update; " +
+				MarkdownDescription: "Position this tag after the named tag (higher precedence than it). Sent on create and whenever `before` or `after` changes; " +
 					"the API does not report it back, so it is not detected as drift. Conflicts with `before`.",
 				Optional: true,
 				Validators: []validator.String{
@@ -105,6 +106,9 @@ func (r *tagResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 			"priority": schema.Int64Attribute{
 				MarkdownDescription: "Precedence assigned by the API. Overrides from a higher priority win over lower ones.",
 				Computed:            true,
+				// No UseStateForUnknown: placing any other tag in the same
+				// apply can shift this one, and a planned known value would
+				// then fail as an inconsistent result.
 			},
 			"config_overrides": schema.SetNestedAttribute{
 				MarkdownDescription: "Nebula config overrides applied to hosts with this tag. `value` is JSON, so use `jsonencode()`: " +
@@ -169,7 +173,7 @@ func (r *tagResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	tag, err := r.client.CreateTag(ctx, body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create tag", err.Error())
+		resp.Diagnostics.AddError("Unable to create tag", fmt.Sprintf("tag %q: %s", plan.Name.ValueString(), err))
 		return
 	}
 
@@ -189,7 +193,7 @@ func (r *tagResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read tag", err.Error())
+		resp.Diagnostics.AddError("Unable to read tag", fmt.Sprintf("tag %q: %s", state.Name.ValueString(), err))
 		return
 	}
 
@@ -197,16 +201,21 @@ func (r *tagResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 }
 
 func (r *tagResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan tagModel
+	var plan, state tagModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	body := client.TagUpdateRequest{
 		Description: plan.Description.ValueString(),
-		Before:      optionalString(plan.Before),
-		After:       optionalString(plan.After),
+	}
+	// Re-sending an unchanged before can still shuffle priorities, which
+	// pushes new config to every host carrying the tag's overrides.
+	if !plan.Before.Equal(state.Before) || !plan.After.Equal(state.After) {
+		body.Before = optionalString(plan.Before)
+		body.After = optionalString(plan.After)
 	}
 	var diags diag.Diagnostics
 	body.ConfigOverrides, diags = expandConfigOverrides(ctx, plan.ConfigOverrides)
@@ -221,7 +230,7 @@ func (r *tagResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	tag, err := r.client.UpdateTag(ctx, plan.Name.ValueString(), body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to update tag", err.Error())
+		resp.Diagnostics.AddError("Unable to update tag", fmt.Sprintf("tag %q: %s", plan.Name.ValueString(), err))
 		return
 	}
 
@@ -237,7 +246,7 @@ func (r *tagResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 
 	err := r.client.DeleteTag(ctx, state.Name.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete tag", err.Error())
+		resp.Diagnostics.AddError("Unable to delete tag", fmt.Sprintf("tag %q: %s", state.Name.ValueString(), err))
 	}
 }
 

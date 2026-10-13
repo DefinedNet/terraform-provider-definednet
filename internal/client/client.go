@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -128,13 +127,15 @@ type PaginationMetadata struct {
 	NextCursor  string `json:"nextCursor"`
 }
 
-const (
-	maxAttempts    = 4
-	defaultBackoff = 2 * time.Second
-)
+const maxAttempts = 4
 
-// do performs a request, retrying on 429 and 5xx, and decodes the data
-// envelope into out when out is non-nil. It returns the raw metadata.
+// retryBackoff is multiplied by the attempt number between retries. It is a
+// variable so tests can shorten it.
+var retryBackoff = 2 * time.Second
+
+// do performs a request, retrying on 429 and on 5xx for idempotent methods,
+// and decodes the data envelope into out when out is non-nil. It returns the
+// raw metadata.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any, out any) (json.RawMessage, error) {
 	var payload []byte
 	if body != nil {
@@ -201,21 +202,19 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 		lastErr = apiErr
 
-		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		// A 5xx on POST may arrive after the server committed the create.
+		// Creates have no idempotency key, so a retry would fail on the
+		// unique name and leave the created object outside Terraform state.
+		retryable := resp.StatusCode == http.StatusTooManyRequests ||
+			(resp.StatusCode >= 500 && method != http.MethodPost)
 		if !retryable || attempt == maxAttempts {
 			return nil, apiErr
 		}
 
-		wait := defaultBackoff * time.Duration(attempt)
-		if ra := resp.Header.Get("Retry-After"); ra != "" {
-			if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
-				wait = time.Duration(secs) * time.Second
-			}
-		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(wait):
+		case <-time.After(retryBackoff * time.Duration(attempt)):
 		}
 	}
 	return nil, lastErr

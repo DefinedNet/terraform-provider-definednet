@@ -22,11 +22,6 @@ import (
 // whitespace on either side, mirroring the API's HostTag validation.
 var tagNameRegexp = regexp.MustCompile(`^[^\s:](?:[^:]{0,18}[^\s:])?:[^\s:](?:[^:]{0,48}[^\s:])?$`)
 
-// localCIDRRegexp accepts the literal ANY or an IPv4 prefix. The API only
-// accepts uppercase ANY on the way in and always emits it that way, so the
-// provider rejects other casings to keep plans stable.
-var localCIDRRegexp = regexp.MustCompile(`^(ANY|(\d{1,3}\.){3}\d{1,3}/\d{1,2})$`)
-
 var portRangeAttrTypes = map[string]attr.Type{
 	"from": types.Int64Type,
 	"to":   types.Int64Type,
@@ -88,6 +83,7 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 		"port_range": schema.SingleNestedAttribute{
 			MarkdownDescription: "Inclusive port range. Omit to allow every port.",
 			Optional:            true,
+			Validators:          []validator.Object{portRangeValidator{}},
 			Attributes: map[string]schema.Attribute{
 				"from": schema.Int64Attribute{
 					MarkdownDescription: "First port in the range (1-65535).",
@@ -104,9 +100,11 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 	}
 	if withLocalCIDR {
 		attrs["local_cidr"] = schema.StringAttribute{
-			MarkdownDescription: "IPv4 CIDR within `routable_cidrs` this rule applies to, or `ANY` for the whole route.",
+			MarkdownDescription: "IPv4 CIDR overlapping one of `routable_cidrs` that this rule applies to, or `ANY` for the whole route.",
 			Required:            true,
-			Validators:          []validator.String{stringvalidator.RegexMatches(localCIDRRegexp, "must be ANY or an IPv4 CIDR such as 10.0.0.0/24")},
+			// The API accepts any casing of ANY but always reports it
+			// uppercase, so only ANY is accepted to keep plans stable.
+			Validators: []validator.String{ipv4PrefixValidator{allowAny: true}},
 		}
 	}
 

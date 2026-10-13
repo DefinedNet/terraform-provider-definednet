@@ -54,3 +54,26 @@ func runUnitTest(t *testing.T, f *fakeAPI, steps []testStep) {
 		Steps:                    tfSteps,
 	})
 }
+
+// runRemovedOutOfBandTest applies cfg, calls remove to delete the object
+// behind Terraform's back, and expects the next plan to recreate it rather
+// than fail the refresh.
+func runRemovedOutOfBandTest(t *testing.T, f *fakeAPI, cfg, addr string, remove func()) {
+	t.Helper()
+	cfg = providerConfig(f) + cfg
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: cfg},
+			{
+				PreConfig: func() {
+					f.mu.Lock()
+					defer f.mu.Unlock()
+					remove()
+				},
+				Config:           cfg,
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: expectCreate(addr)},
+			},
+		},
+	})
+}

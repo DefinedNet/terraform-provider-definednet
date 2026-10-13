@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
-	"regexp"
+	"fmt"
+	"net/netip"
+	"slices"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -23,12 +25,11 @@ import (
 )
 
 var (
-	_ resource.Resource                = (*routeResource)(nil)
-	_ resource.ResourceWithConfigure   = (*routeResource)(nil)
-	_ resource.ResourceWithImportState = (*routeResource)(nil)
+	_ resource.Resource                   = (*routeResource)(nil)
+	_ resource.ResourceWithConfigure      = (*routeResource)(nil)
+	_ resource.ResourceWithImportState    = (*routeResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*routeResource)(nil)
 )
-
-var ipv4CIDRRegexp = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$`)
 
 func newRouteResource() resource.Resource { return &routeResource{} }
 
@@ -91,7 +92,7 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Default:             mapdefault.StaticValue(types.MapValueMust(routeCIDRObjectType, map[string]attr.Value{})),
 				Validators: []validator.Map{
 					mapvalidator.SizeAtMost(20),
-					mapvalidator.KeysAre(stringvalidator.RegexMatches(ipv4CIDRRegexp, "must be an IPv4 network in CIDR form such as 192.168.10.0/24")),
+					mapvalidator.KeysAre(ipv4PrefixValidator{}),
 				},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
@@ -106,6 +107,46 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			},
 			"firewall_rules": firewallRulesSchema(true, "Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`. At most 50."),
 		},
+	}
+}
+
+// ValidateConfig mirrors the API rule that each firewall rule's local_cidr
+// must overlap a routable CIDR. Prefixes either nest or are disjoint, so
+// overlapping means one contains the other.
+func (r *routeResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var cfg routeModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() || cfg.RoutableCIDRs.IsUnknown() || cfg.FirewallRules.IsNull() || cfg.FirewallRules.IsUnknown() {
+		return
+	}
+
+	var routable []netip.Prefix
+	for cidr := range cfg.RoutableCIDRs.Elements() {
+		if p, err := netip.ParsePrefix(cidr); err == nil {
+			routable = append(routable, p)
+		}
+	}
+
+	var rules []routeFirewallRuleModel
+	resp.Diagnostics.Append(cfg.FirewallRules.ElementsAs(ctx, &rules, false)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	for _, rule := range rules {
+		if rule.LocalCIDR.IsNull() || rule.LocalCIDR.IsUnknown() || rule.LocalCIDR.ValueString() == "ANY" {
+			continue
+		}
+		p, err := netip.ParsePrefix(rule.LocalCIDR.ValueString())
+		if err != nil {
+			continue // reported by the attribute validator
+		}
+		overlaps := slices.ContainsFunc(routable, func(rp netip.Prefix) bool {
+			return prefixContains(rp, p) || prefixContains(p, rp)
+		})
+		if !overlaps {
+			resp.Diagnostics.AddAttributeError(path.Root("firewall_rules"), "Invalid local_cidr",
+				fmt.Sprintf("local_cidr %q must overlap one of routable_cidrs.", rule.LocalCIDR.ValueString()))
+		}
 	}
 }
 
@@ -128,7 +169,7 @@ func (r *routeResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	route, err := r.client.CreateRoute(ctx, body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create route", err.Error())
+		resp.Diagnostics.AddError("Unable to create route", fmt.Sprintf("route %q: %s", plan.Name.ValueString(), err))
 		return
 	}
 
@@ -148,7 +189,7 @@ func (r *routeResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to read route", err.Error())
+		resp.Diagnostics.AddError("Unable to read route", fmt.Sprintf("route %q: %s", state.ID.ValueString(), err))
 		return
 	}
 
@@ -170,7 +211,7 @@ func (r *routeResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 	route, err := r.client.UpdateRoute(ctx, plan.ID.ValueString(), body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to update route", err.Error())
+		resp.Diagnostics.AddError("Unable to update route", fmt.Sprintf("route %q: %s", plan.ID.ValueString(), err))
 		return
 	}
 
@@ -186,7 +227,7 @@ func (r *routeResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 
 	err := r.client.DeleteRoute(ctx, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete route", err.Error())
+		resp.Diagnostics.AddError("Unable to delete route", fmt.Sprintf("route %q: %s", state.ID.ValueString(), err))
 	}
 }
 

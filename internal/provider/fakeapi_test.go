@@ -33,16 +33,20 @@ type fakeAPI struct {
 	routes   map[string]*client.Route
 	networks map[string]*client.Network
 
+	// tagUpdates holds the last PUT body received for each tag.
+	tagUpdates map[string]client.TagUpdateRequest
+
 	server *httptest.Server
 }
 
 func newFakeAPI() *fakeAPI {
 	f := &fakeAPI{
-		apiKey:   "test-key",
-		roles:    map[string]*client.Role{},
-		tags:     map[string]*client.Tag{},
-		routes:   map[string]*client.Route{},
-		networks: map[string]*client.Network{},
+		apiKey:     "test-key",
+		roles:      map[string]*client.Role{},
+		tags:       map[string]*client.Tag{},
+		routes:     map[string]*client.Route{},
+		networks:   map[string]*client.Network{},
+		tagUpdates: map[string]client.TagUpdateRequest{},
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	return f
@@ -275,6 +279,7 @@ func (f *fakeAPI) handleTags(w http.ResponseWriter, r *http.Request, rest []stri
 				writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
 				return
 			}
+			f.tagUpdates[tag.Name] = req
 			rules := req.FirewallRules
 			if rules == nil {
 				// The real API leaves rules untouched on a null firewallRules.
