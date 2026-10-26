@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     definednet = {
-      source = "johnmaguire/definednet"
+      source = "definednet/definednet"
     }
   }
 }

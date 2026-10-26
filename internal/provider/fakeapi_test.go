@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
 
 // fakeAPI is an in-memory stand-in for api.defined.net that reproduces the

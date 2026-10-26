@@ -1,4 +1,4 @@
-module github.com/johnmaguire/terraform-provider-definednet
+module github.com/DefinedNet/terraform-provider-definednet
 
 go 1.26.5
 

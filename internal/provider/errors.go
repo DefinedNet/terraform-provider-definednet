@@ -3,7 +3,7 @@ package provider
 import (
 	"errors"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
 
 // describeError renders an API error for a diagnostic, adding the next step

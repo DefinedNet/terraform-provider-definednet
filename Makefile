@@ -11,10 +11,10 @@ install:
 	go install -ldflags "-X main.version=$(VERSION)" .
 
 test:
-	go test ./...
+	go test $(TEST_FLAGS) ./...
 
-testv:
-	go test -v ./...
+testv: TEST_FLAGS += -v
+testv: test
 
 docs:
 	go tool tfplugindocs generate --provider-name definednet
@@ -25,4 +25,7 @@ fmt:
 vet:
 	go vet ./...
 
-ready: fmt vet test docs
+lint:
+	golangci-lint run ./...
+
+ready: fmt vet lint test docs
