@@ -85,7 +85,7 @@ func (r *tagResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(""),
-				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthAtMost(255)},
 			},
 			"before": schema.StringAttribute{
 				MarkdownDescription: "Position this tag before the named tag (lower precedence than it). Sent on create and whenever `before` or `after` changes; " +
@@ -317,10 +317,11 @@ func expandConfigOverrides(ctx context.Context, set types.Set) ([]client.ConfigO
 	return out, diags
 }
 
-// canonicalJSON re-encodes a JSON value compactly with object keys sorted, the
-// same text jsonencode() produces. Set elements compare byte for byte, so
-// without a reference value (import, or a key added outside Terraform) the
-// API's own key order would show as a change on the next plan.
+// canonicalJSON re-encodes a JSON value compactly with object keys sorted and
+// Go's default HTML escaping, the same text jsonencode() produces. Set
+// elements compare byte for byte, so without a reference value (import, or a
+// key added outside Terraform) the API's own key order would show as a change
+// on the next plan.
 func canonicalJSON(raw json.RawMessage) string {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -330,7 +331,6 @@ func canonicalJSON(raw json.RawMessage) string {
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
 		return string(raw)
 	}

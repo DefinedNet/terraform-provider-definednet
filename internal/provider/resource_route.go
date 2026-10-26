@@ -72,14 +72,14 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Route name, 1-50 characters.",
 				Required:            true,
-				Validators:          []validator.String{stringvalidator.LengthBetween(1, 50)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthBetween(1, 50)},
 			},
 			"description": schema.StringAttribute{
 				MarkdownDescription: "Optional description, at most 255 characters.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(""),
-				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthAtMost(255)},
 			},
 			"router_host_id": schema.StringAttribute{
 				MarkdownDescription: "ID of the host that forwards traffic for this route. Omit to leave the route without a router.",

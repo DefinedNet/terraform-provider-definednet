@@ -76,7 +76,7 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 			Optional:            true,
 			Computed:            true,
 			Default:             stringdefault.StaticString(""),
-			Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
+			Validators:          []validator.String{stringvalidator.UTF8LengthAtMost(255)},
 		},
 		"allowed_role_id": schema.StringAttribute{
 			MarkdownDescription: descRuleRoleID,

@@ -54,7 +54,7 @@ func (r *roleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Role name, 1-50 characters. Changing it forces a new role.",
 				Required:            true,
-				Validators:          []validator.String{stringvalidator.LengthBetween(1, 50)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthBetween(1, 50)},
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"description": schema.StringAttribute{
@@ -62,7 +62,7 @@ func (r *roleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(""),
-				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthAtMost(255)},
 			},
 			"firewall_rules": firewallRulesSchema(false, "Inbound firewall rules applied to hosts with this role."),
 		},

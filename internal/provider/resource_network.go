@@ -68,14 +68,14 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Network name, 1-255 characters.",
 				Required:            true,
-				Validators:          []validator.String{stringvalidator.LengthBetween(1, 255)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthBetween(1, 255)},
 			},
 			"description": schema.StringAttribute{
 				MarkdownDescription: "Optional description, at most 255 characters.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(""),
-				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
+				Validators:          []validator.String{stringvalidator.UTF8LengthAtMost(255)},
 			},
 			"ipv4_cidr": schema.StringAttribute{
 				MarkdownDescription: "IPv4 prefix for the network, e.g. `100.100.0.0/22`: /8 to /30, inside private or CGNAT space. Omit for an IPv6-only network. " +
@@ -230,13 +230,13 @@ func (r *networkResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	// Overrides live behind their own endpoint. State is written before the
-	// PUT so a failure there leaves the network tainted instead of orphaned.
-	// An unknown plan value means config omitted the attribute, so the
-	// server-assigned list is read back instead of replaced.
+	// follow-up request so a failure there leaves the network tainted instead
+	// of orphaned. An unknown plan value means config omitted the attribute,
+	// so the server-assigned list is read back instead of replaced.
+	resp.Diagnostics.Append(r.setState(ctx, network, nil, plan.ConfigOverrides, &resp.State)...)
 	if plan.ConfigOverrides.IsUnknown() {
 		overrides, err = r.client.GetNetworkConfigOverrides(ctx, network.ID)
 	} else {
-		resp.Diagnostics.Append(r.setState(ctx, network, nil, plan.ConfigOverrides, &resp.State)...)
 		overrides, err = r.client.SetNetworkConfigOverrides(ctx, network.ID, overrides)
 	}
 	if err != nil {
