@@ -61,8 +61,8 @@ resource "definednet_tag" "prod" {
 - `before` (String) Position this tag before the named tag (lower precedence than it). Sent on create and whenever `before` or `after` changes; the API does not report it back, so it is not detected as drift. Conflicts with `after`.
 - `config_overrides` (Attributes Set) Nebula config overrides applied to hosts with this tag. `value` is JSON, so use `jsonencode()`: `jsonencode("info")` for a string key, `jsonencode(4242)` for a number, `jsonencode(["10.0.0.1"])` for a list. (see [below for nested schema](#nestedatt--config_overrides))
 - `description` (String) Optional description, at most 255 characters.
-- `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this tag, in addition to their role's rules. At most 50. (see [below for nested schema](#nestedatt--firewall_rules))
-- `route_subscriptions` (Set of String) Route IDs every host with this tag is subscribed to. At most 100.
+- `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this tag, in addition to their role's rules. (see [below for nested schema](#nestedatt--firewall_rules))
+- `route_subscriptions` (Set of String) Route IDs every host with this tag is subscribed to.
 
 ### Read-Only
 
@@ -83,14 +83,14 @@ Required:
 
 Required:
 
-- `protocol` (String) Protocol to allow: `ANY`, `TCP`, `UDP`, or `ICMP`.
+- `protocol` (String) Allowed protocol: `ANY`, `TCP`, `UDP`, or `ICMP`.
 
 Optional:
 
-- `allowed_role_id` (String) Only allow hosts with this role. Omit to allow every role.
-- `allowed_tags` (Set of String) Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. An empty set means the same thing to the API as omitting the attribute and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
+- `allowed_role_id` (String) Only hosts with this role are allowed. Null allows every role.
+- `allowed_tags` (Set of String) Only hosts carrying every one of these `key:value` tags are allowed. Null allows any tags. An empty set means the same thing to the API as null and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
 - `description` (String) Optional description, at most 255 characters.
-- `port_range` (Attributes) Inclusive port range. Omit to allow every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
+- `port_range` (Attributes) Inclusive port range. Null allows every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
 
 <a id="nestedatt--firewall_rules--port_range"></a>
 ### Nested Schema for `firewall_rules.port_range`
@@ -98,7 +98,7 @@ Optional:
 Required:
 
 - `from` (Number) First port in the range (1-65535).
-- `to` (Number) Last port in the range (1-65535). Must be at least `from`.
+- `to` (Number) Last port in the range (1-65535), at least `from`.
 
 ## Import
 

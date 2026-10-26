@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -32,7 +33,7 @@ func (d *networkDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *networkDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Looks up an existing network by ID or by exact name.",
+		MarkdownDescription: "Looks up an existing network by ID or by exact name. Lookup by name also needs the `networks:list` scope.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "Network ID. Exactly one of `id` or `name` must be set.",
@@ -51,9 +52,19 @@ func (d *networkDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"curve":                       schema.StringAttribute{Computed: true, MarkdownDescription: "Certificate curve: `25519` or `P256`."},
 			"lighthouses_as_relays":       schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether lighthouses act as relays."},
 			"disable_managed_lighthouses": schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether the network has opted out of the managed lighthouse."},
-			"organization_id":             schema.StringAttribute{Computed: true, MarkdownDescription: "ID of the owning organization."},
-			"signing_ca_id":               schema.StringAttribute{Computed: true, MarkdownDescription: "ID of the signing certificate authority."},
-			"created_at":                  schema.StringAttribute{Computed: true, MarkdownDescription: "Creation timestamp in RFC 3339 form."},
+			"config_overrides": schema.SetNestedAttribute{
+				Computed:            true,
+				MarkdownDescription: "Nebula config overrides applied to every host in the network.",
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"key":   schema.StringAttribute{Computed: true, MarkdownDescription: "Dotted nebula config key, e.g. `punchy.delay`."},
+						"value": schema.StringAttribute{Computed: true, CustomType: jsontypes.NormalizedType{}, MarkdownDescription: "JSON-encoded value for the key; use `jsondecode()` to read it."},
+					},
+				},
+			},
+			"organization_id": schema.StringAttribute{Computed: true, MarkdownDescription: "ID of the owning organization."},
+			"signing_ca_id":   schema.StringAttribute{Computed: true, MarkdownDescription: "ID of the signing certificate authority."},
+			"created_at":      schema.StringAttribute{Computed: true, MarkdownDescription: "Creation timestamp in RFC 3339 form."},
 		},
 	}
 }
@@ -99,7 +110,13 @@ func (d *networkDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		network = &all[i]
 	}
 
-	m, diags := flattenNetwork(ctx, network)
+	overrides, err := d.client.GetNetworkConfigOverrides(ctx, network.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to read network config overrides", fmt.Sprintf("network %q: %s", network.ID, err))
+		return
+	}
+
+	m, diags := flattenNetwork(ctx, network, overrides, types.SetNull(configOverrideObjectType))
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return

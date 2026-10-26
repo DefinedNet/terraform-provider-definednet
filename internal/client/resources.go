@@ -7,6 +7,9 @@ import (
 	"net/url"
 )
 
+// Whoami checks that the API key is accepted. GET /v2/whoami is open to any
+// actor, so it needs no scope; the response body is not needed.
+
 // Roles
 
 func (c *Client) CreateRole(ctx context.Context, req RoleCreateRequest) (*Role, error) {
@@ -135,6 +138,23 @@ func (c *Client) AddNetworkCIDR(ctx context.Context, id string, cidr string) (*N
 	return &out, nil
 }
 
+func (c *Client) GetNetworkConfigOverrides(ctx context.Context, id string) ([]ConfigOverride, error) {
+	var out ConfigOverridesBody
+	if _, err := c.do(ctx, http.MethodGet, "/v1/networks/"+pathSegment(id)+"/config-overrides", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Overrides, nil
+}
+
+func (c *Client) SetNetworkConfigOverrides(ctx context.Context, id string, overrides []ConfigOverride) ([]ConfigOverride, error) {
+	var out ConfigOverridesBody
+	req := ConfigOverridesBody{Overrides: overrides}
+	if _, err := c.do(ctx, http.MethodPut, "/v1/networks/"+pathSegment(id)+"/config-overrides", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return out.Overrides, nil
+}
+
 func (c *Client) DeleteNetwork(ctx context.Context, id string) error {
 	_, err := c.do(ctx, http.MethodDelete, "/v1/networks/"+pathSegment(id), nil, nil, nil)
 	return err
@@ -142,15 +162,31 @@ func (c *Client) DeleteNetwork(ctx context.Context, id string) error {
 
 // ListNetworks walks every page of GET /v2/networks.
 func (c *Client) ListNetworks(ctx context.Context) ([]Network, error) {
-	var all []Network
+	return listAll[Network](ctx, c, "/v2/networks")
+}
+
+// ListRoles walks every page of GET /v1/roles. List items omit firewall
+// rules; call GetRole for the full object.
+func (c *Client) ListRoles(ctx context.Context) ([]Role, error) {
+	return listAll[Role](ctx, c, "/v1/roles")
+}
+
+// ListRoutes walks every page of GET /v1/routes. List items omit firewall
+// rules; call GetRoute for the full object.
+func (c *Client) ListRoutes(ctx context.Context) ([]Route, error) {
+	return listAll[Route](ctx, c, "/v1/routes")
+}
+
+func listAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
+	var all []T
 	cursor := ""
 	for {
 		q := url.Values{"pageSize": {"500"}}
 		if cursor != "" {
 			q.Set("cursor", cursor)
 		}
-		var page []Network
-		meta, err := c.do(ctx, http.MethodGet, "/v2/networks", q, nil, &page)
+		var page []T
+		meta, err := c.do(ctx, http.MethodGet, path, q, nil, &page)
 		if err != nil {
 			return nil, err
 		}

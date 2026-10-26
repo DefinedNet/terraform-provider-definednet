@@ -142,3 +142,59 @@ resource "definednet_route" "r" {
   name = "r"
 }`, "definednet_route.r", func() { clear(f.routes) })
 }
+
+func TestRouteDataSource(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	cfg := `
+resource "definednet_route" "dc" {
+  name           = "datacenter"
+  router_host_id = "host-24NVITKMNU3CYCEDNFWKAOBX7I"
+  routable_cidrs = {
+    "192.168.14.0/24" = { install = true }
+  }
+  firewall_rules = [
+    { local_cidr = "ANY", protocol = "ICMP" },
+  ]
+}
+
+resource "definednet_route" "other" {
+  name = "other"
+}
+
+data "definednet_route" "by_name" {
+  name       = "datacenter"
+  depends_on = [definednet_route.dc, definednet_route.other]
+}
+
+data "definednet_route" "by_id" {
+  id = definednet_route.other.id
+}
+`
+	runUnitTest(t, f, []testStep{
+		{
+			config:      `data "definednet_route" "x" {}`,
+			expectError: "Exactly one of these attributes must be configured",
+		},
+		{
+			config: `
+data "definednet_route" "x" {
+  name = "missing"
+}`,
+			expectError: "Route not found",
+		},
+		{
+			config: cfg,
+			checks: []resource.TestCheckFunc{
+				resource.TestCheckResourceAttrPair("data.definednet_route.by_name", "id", "definednet_route.dc", "id"),
+				resource.TestCheckResourceAttr("data.definednet_route.by_name", "router_host_id", "host-24NVITKMNU3CYCEDNFWKAOBX7I"),
+				resource.TestCheckResourceAttr("data.definednet_route.by_name", "routable_cidrs.192.168.14.0/24.install", "true"),
+				// Rules must come from the GET, not the summary list item.
+				resource.TestCheckResourceAttr("data.definednet_route.by_name", "firewall_rules.#", "1"),
+				resource.TestCheckResourceAttr("data.definednet_route.by_id", "name", "other"),
+				resource.TestCheckNoResourceAttr("data.definednet_route.by_id", "router_host_id"),
+			},
+		},
+	})
+}

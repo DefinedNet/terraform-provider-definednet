@@ -64,7 +64,7 @@ func (r *roleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Default:             stringdefault.StaticString(""),
 				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
 			},
-			"firewall_rules": firewallRulesSchema(false, "Inbound firewall rules applied to hosts with this role. At most 50."),
+			"firewall_rules": firewallRulesSchema(false, "Inbound firewall rules applied to hosts with this role."),
 		},
 	}
 }
@@ -92,7 +92,7 @@ func (r *roleResource) Create(ctx context.Context, req resource.CreateRequest, r
 		FirewallRules: rules,
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create role", fmt.Sprintf("role %q: %s", plan.Name.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to create role", fmt.Sprintf("role %q: %s", plan.Name.ValueString(), describeError(err)))
 		return
 	}
 
@@ -153,7 +153,7 @@ func (r *roleResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 
 	err := r.client.DeleteRole(ctx, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete role", fmt.Sprintf("role %q: %s", state.ID.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to delete role", fmt.Sprintf("role %q: %s", state.ID.ValueString(), describeError(err)))
 	}
 }
 
@@ -162,16 +162,20 @@ func (r *roleResource) ImportState(ctx context.Context, req resource.ImportState
 }
 
 func (r *roleResource) setState(ctx context.Context, role *client.Role, state stateSetter) diag.Diagnostics {
-	rules, diags := flattenFirewallRules(ctx, role.FirewallRules, false)
+	m, diags := flattenRole(ctx, role)
 	if diags.HasError() {
 		return diags
 	}
-	m := roleModel{
+	diags.Append(state.Set(ctx, &m)...)
+	return diags
+}
+
+func flattenRole(ctx context.Context, role *client.Role) (roleModel, diag.Diagnostics) {
+	rules, diags := flattenFirewallRules(ctx, role.FirewallRules, false)
+	return roleModel{
 		ID:            types.StringValue(role.ID),
 		Name:          types.StringValue(role.Name),
 		Description:   types.StringValue(role.Description),
 		FirewallRules: rules,
-	}
-	diags.Append(state.Set(ctx, &m)...)
-	return diags
+	}, diags
 }

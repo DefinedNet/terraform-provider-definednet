@@ -54,7 +54,7 @@ resource "definednet_role" "web" {
 ### Optional
 
 - `description` (String) Optional description, at most 255 characters.
-- `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this role. At most 50. (see [below for nested schema](#nestedatt--firewall_rules))
+- `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this role. (see [below for nested schema](#nestedatt--firewall_rules))
 
 ### Read-Only
 
@@ -65,14 +65,14 @@ resource "definednet_role" "web" {
 
 Required:
 
-- `protocol` (String) Protocol to allow: `ANY`, `TCP`, `UDP`, or `ICMP`.
+- `protocol` (String) Allowed protocol: `ANY`, `TCP`, `UDP`, or `ICMP`.
 
 Optional:
 
-- `allowed_role_id` (String) Only allow hosts with this role. Omit to allow every role.
-- `allowed_tags` (Set of String) Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. An empty set means the same thing to the API as omitting the attribute and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
+- `allowed_role_id` (String) Only hosts with this role are allowed. Null allows every role.
+- `allowed_tags` (Set of String) Only hosts carrying every one of these `key:value` tags are allowed. Null allows any tags. An empty set means the same thing to the API as null and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
 - `description` (String) Optional description, at most 255 characters.
-- `port_range` (Attributes) Inclusive port range. Omit to allow every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
+- `port_range` (Attributes) Inclusive port range. Null allows every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
 
 <a id="nestedatt--firewall_rules--port_range"></a>
 ### Nested Schema for `firewall_rules.port_range`
@@ -80,7 +80,7 @@ Optional:
 Required:
 
 - `from` (Number) First port in the range (1-65535).
-- `to` (Number) Last port in the range (1-65535). Must be at least `from`.
+- `to` (Number) Last port in the range (1-65535), at least `from`.
 
 ## Import
 

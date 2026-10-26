@@ -3,12 +3,12 @@
 page_title: "definednet_network Data Source - definednet"
 subcategory: ""
 description: |-
-  Looks up an existing network by ID or by exact name.
+  Looks up an existing network by ID or by exact name. Lookup by name also needs the networks:list scope.
 ---
 
 # definednet_network (Data Source)
 
-Looks up an existing network by ID or by exact name.
+Looks up an existing network by ID or by exact name. Lookup by name also needs the `networks:list` scope.
 
 ## Example Usage
 
@@ -34,6 +34,7 @@ output "main_cidrs" {
 
 - `cert_version` (Number) Nebula certificate version in use.
 - `cidrs` (List of String) Every prefix assigned to the network.
+- `config_overrides` (Attributes Set) Nebula config overrides applied to every host in the network. (see [below for nested schema](#nestedatt--config_overrides))
 - `created_at` (String) Creation timestamp in RFC 3339 form.
 - `curve` (String) Certificate curve: `25519` or `P256`.
 - `description` (String) Network description.
@@ -42,3 +43,11 @@ output "main_cidrs" {
 - `lighthouses_as_relays` (Boolean) Whether lighthouses act as relays.
 - `organization_id` (String) ID of the owning organization.
 - `signing_ca_id` (String) ID of the signing certificate authority.
+
+<a id="nestedatt--config_overrides"></a>
+### Nested Schema for `config_overrides`
+
+Read-Only:
+
+- `key` (String) Dotted nebula config key, e.g. `punchy.delay`.
+- `value` (String) JSON-encoded value for the key; use `jsondecode()` to read it.

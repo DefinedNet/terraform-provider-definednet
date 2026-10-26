@@ -21,6 +21,10 @@ resource "definednet_network" "main" {
   description           = "Ops team management network"
   ipv4_cidr             = "100.100.0.0/22"
   lighthouses_as_relays = true
+
+  config_overrides = [
+    { key = "punchy.delay", value = jsonencode("200ms") },
+  ]
 }
 ```
 
@@ -33,11 +37,12 @@ resource "definednet_network" "main" {
 
 ### Optional
 
+- `config_overrides` (Attributes Set) Nebula config overrides applied to every host in the network; tag and host overrides take precedence over them. Omit it to leave server-managed overrides, such as the generated `tun.dev`, untouched; set it, even to `[]`, to take ownership of the whole list. `value` is JSON, so use `jsonencode()`: `jsonencode("200ms")` for a string key, `jsonencode(true)` for a boolean, `jsonencode(["10.0.0.1"])` for a list. (see [below for nested schema](#nestedatt--config_overrides))
 - `curve` (String) Certificate curve: `25519` or `P256`. Defaults to the API's choice. Changing it forces a new network.
-- `description` (String) Optional description.
+- `description` (String) Optional description, at most 255 characters.
 - `disable_managed_lighthouses` (Boolean) Opt out of the managed lighthouse. Only set this if you run your own lighthouses. No effect on cert version 1 networks.
 - `ipv4_cidr` (String) IPv4 prefix for the network, e.g. `100.100.0.0/22`: /8 to /30, inside private or CGNAT space. Omit for an IPv6-only network. An IPv4 prefix can be added to an existing IPv6-only network, but once set it cannot be changed or removed without replacing the network.
-- `lighthouses_as_relays` (Boolean) Configure the network's lighthouses, managed or self-hosted, as relays for hosts that cannot connect directly.
+- `lighthouses_as_relays` (Boolean) Configure the network's lighthouses, managed or self-hosted, as relays for hosts that cannot connect directly. Defaults to `true`, as in the API and admin panel.
 
 ### Read-Only
 
@@ -47,6 +52,14 @@ resource "definednet_network" "main" {
 - `id` (String) Network ID, e.g. `network-ZJOW3QUQUX5ZAVPVYRHDQUAEIY`.
 - `organization_id` (String) ID of the owning organization.
 - `signing_ca_id` (String) ID of the certificate authority signing host certificates for this network.
+
+<a id="nestedatt--config_overrides"></a>
+### Nested Schema for `config_overrides`
+
+Required:
+
+- `key` (String) Dotted nebula config key, e.g. `lighthouse.dns.host`.
+- `value` (String) JSON-encoded value for the key.
 
 ## Import
 

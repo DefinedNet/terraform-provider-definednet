@@ -153,3 +153,9 @@ type NetworkUpdateRequest struct {
 type NetworkAddCIDRRequest struct {
 	CIDR string `json:"cidr"`
 }
+
+// ConfigOverridesBody is the body and response of GET and PUT
+// /v1/networks/{id}/config-overrides. PUT replaces the whole list.
+type ConfigOverridesBody struct {
+	Overrides []ConfigOverride `json:"overrides"`
+}

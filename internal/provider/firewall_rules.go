@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	dsschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
@@ -47,6 +48,18 @@ func firewallRuleObjectType(withLocalCIDR bool) types.ObjectType {
 	return types.ObjectType{AttrTypes: firewallRuleAttrTypes(withLocalCIDR)}
 }
 
+// Field descriptions shared by the resource and data source schemas.
+const (
+	descRuleProtocol    = "Allowed protocol: `ANY`, `TCP`, `UDP`, or `ICMP`."
+	descRuleDescription = "Optional description, at most 255 characters."
+	descRuleRoleID      = "Only hosts with this role are allowed. Null allows every role."
+	descRuleTags        = "Only hosts carrying every one of these `key:value` tags are allowed. Null allows any tags."
+	descRulePortRange   = "Inclusive port range. Null allows every port."
+	descRulePortFrom    = "First port in the range (1-65535)."
+	descRulePortTo      = "Last port in the range (1-65535), at least `from`."
+	descRuleLocalCIDR   = "IPv4 CIDR overlapping one of `routable_cidrs` that this rule applies to, or `ANY` for the whole route."
+)
+
 // firewallRulesSchema returns the shared firewall_rules attribute. It is a set
 // because the API returns rules sorted by CIDR and port rather than in
 // submission order. The set defaults to empty so that omitting it and writing
@@ -54,24 +67,23 @@ func firewallRuleObjectType(withLocalCIDR bool) types.ObjectType {
 func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNestedAttribute {
 	attrs := map[string]schema.Attribute{
 		"protocol": schema.StringAttribute{
-			MarkdownDescription: "Protocol to allow: `ANY`, `TCP`, `UDP`, or `ICMP`.",
+			MarkdownDescription: descRuleProtocol,
 			Required:            true,
 			Validators:          []validator.String{stringvalidator.OneOf("ANY", "TCP", "UDP", "ICMP")},
 		},
 		"description": schema.StringAttribute{
-			MarkdownDescription: "Optional description, at most 255 characters.",
+			MarkdownDescription: descRuleDescription,
 			Optional:            true,
 			Computed:            true,
 			Default:             stringdefault.StaticString(""),
 			Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
 		},
 		"allowed_role_id": schema.StringAttribute{
-			MarkdownDescription: "Only allow hosts with this role. Omit to allow every role.",
+			MarkdownDescription: descRuleRoleID,
 			Optional:            true,
 		},
 		"allowed_tags": schema.SetAttribute{
-			MarkdownDescription: "Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. " +
-				"An empty set means the same thing to the API as omitting the attribute and is always reported back as null, " +
+			MarkdownDescription: descRuleTags + " An empty set means the same thing to the API as null and is always reported back as null, " +
 				"so it is rejected to keep the plan and refreshed state in agreement.",
 			Optional:    true,
 			ElementType: types.StringType,
@@ -81,17 +93,17 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 			},
 		},
 		"port_range": schema.SingleNestedAttribute{
-			MarkdownDescription: "Inclusive port range. Omit to allow every port.",
+			MarkdownDescription: descRulePortRange,
 			Optional:            true,
 			Validators:          []validator.Object{portRangeValidator{}},
 			Attributes: map[string]schema.Attribute{
 				"from": schema.Int64Attribute{
-					MarkdownDescription: "First port in the range (1-65535).",
+					MarkdownDescription: descRulePortFrom,
 					Required:            true,
 					Validators:          []validator.Int64{int64validator.Between(1, 65535)},
 				},
 				"to": schema.Int64Attribute{
-					MarkdownDescription: "Last port in the range (1-65535). Must be at least `from`.",
+					MarkdownDescription: descRulePortTo,
 					Required:            true,
 					Validators:          []validator.Int64{int64validator.Between(1, 65535)},
 				},
@@ -100,7 +112,7 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 	}
 	if withLocalCIDR {
 		attrs["local_cidr"] = schema.StringAttribute{
-			MarkdownDescription: "IPv4 CIDR overlapping one of `routable_cidrs` that this rule applies to, or `ANY` for the whole route.",
+			MarkdownDescription: descRuleLocalCIDR,
 			Required:            true,
 			// The API accepts any casing of ANY but always reports it
 			// uppercase, so only ANY is accepted to keep plans stable.
@@ -241,4 +253,31 @@ func flattenFirewallRules(ctx context.Context, rules []client.FirewallRule, with
 	set, d := types.SetValue(objType, elems)
 	diags.Append(d...)
 	return set, diags
+}
+
+// firewallRulesDataSchema is the read-only data source counterpart of
+// firewallRulesSchema with the same element type and field descriptions.
+func firewallRulesDataSchema(withLocalCIDR bool, description string) dsschema.SetNestedAttribute {
+	attrs := map[string]dsschema.Attribute{
+		"protocol":        dsschema.StringAttribute{Computed: true, MarkdownDescription: descRuleProtocol},
+		"description":     dsschema.StringAttribute{Computed: true, MarkdownDescription: descRuleDescription},
+		"allowed_role_id": dsschema.StringAttribute{Computed: true, MarkdownDescription: descRuleRoleID},
+		"allowed_tags":    dsschema.SetAttribute{Computed: true, ElementType: types.StringType, MarkdownDescription: descRuleTags},
+		"port_range": dsschema.SingleNestedAttribute{
+			Computed:            true,
+			MarkdownDescription: descRulePortRange,
+			Attributes: map[string]dsschema.Attribute{
+				"from": dsschema.Int64Attribute{Computed: true, MarkdownDescription: descRulePortFrom},
+				"to":   dsschema.Int64Attribute{Computed: true, MarkdownDescription: descRulePortTo},
+			},
+		},
+	}
+	if withLocalCIDR {
+		attrs["local_cidr"] = dsschema.StringAttribute{Computed: true, MarkdownDescription: descRuleLocalCIDR}
+	}
+	return dsschema.SetNestedAttribute{
+		MarkdownDescription: description,
+		Computed:            true,
+		NestedObject:        dsschema.NestedAttributeObject{Attributes: attrs},
+	}
 }

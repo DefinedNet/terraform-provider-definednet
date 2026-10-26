@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -43,6 +44,7 @@ type networkModel struct {
 	Curve                     types.String `tfsdk:"curve"`
 	LighthousesAsRelays       types.Bool   `tfsdk:"lighthouses_as_relays"`
 	DisableManagedLighthouses types.Bool   `tfsdk:"disable_managed_lighthouses"`
+	ConfigOverrides           types.Set    `tfsdk:"config_overrides"`
 	OrganizationID            types.String `tfsdk:"organization_id"`
 	SigningCAID               types.String `tfsdk:"signing_ca_id"`
 	CreatedAt                 types.String `tfsdk:"created_at"`
@@ -69,10 +71,11 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators:          []validator.String{stringvalidator.LengthBetween(1, 255)},
 			},
 			"description": schema.StringAttribute{
-				MarkdownDescription: "Optional description.",
+				MarkdownDescription: "Optional description, at most 255 characters.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(""),
+				Validators:          []validator.String{stringvalidator.LengthAtMost(255)},
 			},
 			"ipv4_cidr": schema.StringAttribute{
 				MarkdownDescription: "IPv4 prefix for the network, e.g. `100.100.0.0/22`: /8 to /30, inside private or CGNAT space. Omit for an IPv6-only network. " +
@@ -108,10 +111,10 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				},
 			},
 			"lighthouses_as_relays": schema.BoolAttribute{
-				MarkdownDescription: "Configure the network's lighthouses, managed or self-hosted, as relays for hosts that cannot connect directly.",
+				MarkdownDescription: "Configure the network's lighthouses, managed or self-hosted, as relays for hosts that cannot connect directly. Defaults to `true`, as in the API and admin panel.",
 				Optional:            true,
 				Computed:            true,
-				Default:             booldefault.StaticBool(false),
+				Default:             booldefault.StaticBool(true),
 			},
 			"disable_managed_lighthouses": schema.BoolAttribute{
 				MarkdownDescription: "Opt out of the managed lighthouse. Only set this if you run your own lighthouses. No effect on cert version 1 networks.",
@@ -119,6 +122,7 @@ func (r *networkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed:            true,
 				Default:             booldefault.StaticBool(false),
 			},
+			"config_overrides": networkConfigOverridesSchema(),
 			"organization_id": schema.StringAttribute{
 				MarkdownDescription: "ID of the owning organization.",
 				Computed:            true,
@@ -176,6 +180,21 @@ func (cidrsUseStateUnlessIPv4Changes) PlanModifyList(ctx context.Context, req pl
 	resp.PlanValue = req.StateValue
 }
 
+// networkConfigOverridesSchema differs from the tag's in having no default:
+// the API assigns a generated tun.dev override to every new network, so an
+// omitted attribute accepts whatever the server holds instead of clearing it.
+// Once set, the attribute owns the whole list; removing it from config keeps
+// the last value, and an explicit [] clears it.
+func networkConfigOverridesSchema() schema.SetNestedAttribute {
+	a := configOverridesSchema("Nebula config overrides applied to every host in the network; tag and host overrides take precedence over them. " +
+		"Omit it to leave server-managed overrides, such as the generated `tun.dev`, untouched; set it, even to `[]`, to take ownership of the whole list. " +
+		"`value` is JSON, so use `jsonencode()`: `jsonencode(\"200ms\")` for a string key, `jsonencode(true)` for a boolean, " +
+		"`jsonencode([\"10.0.0.1\"])` for a list.")
+	a.Default = nil
+	a.PlanModifiers = []planmodifier.Set{setplanmodifier.UseStateForUnknown()}
+	return a
+}
+
 func (r *networkResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = clientFromProviderData(req.ProviderData, &resp.Diagnostics)
 }
@@ -198,14 +217,34 @@ func (r *networkResource) Create(ctx context.Context, req resource.CreateRequest
 	if !plan.IPv4CIDR.IsNull() {
 		body.CIDRs = append(body.CIDRs, plan.IPv4CIDR.ValueString())
 	}
-
-	network, err := r.client.CreateNetwork(ctx, body)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to create network", fmt.Sprintf("network %q: %s", plan.Name.ValueString(), err))
+	overrides, diags := expandConfigOverrides(ctx, plan.ConfigOverrides)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.Diagnostics.Append(r.setState(ctx, network, &resp.State)...)
+	network, err := r.client.CreateNetwork(ctx, body)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to create network", fmt.Sprintf("network %q: %s", plan.Name.ValueString(), describeError(err)))
+		return
+	}
+
+	// Overrides live behind their own endpoint. State is written before the
+	// PUT so a failure there leaves the network tainted instead of orphaned.
+	// An unknown plan value means config omitted the attribute, so the
+	// server-assigned list is read back instead of replaced.
+	if plan.ConfigOverrides.IsUnknown() {
+		overrides, err = r.client.GetNetworkConfigOverrides(ctx, network.ID)
+	} else {
+		resp.Diagnostics.Append(r.setState(ctx, network, nil, plan.ConfigOverrides, &resp.State)...)
+		overrides, err = r.client.SetNetworkConfigOverrides(ctx, network.ID, overrides)
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to set network config overrides", fmt.Sprintf("network %q: %s", network.ID, err))
+		return
+	}
+
+	resp.Diagnostics.Append(r.setState(ctx, network, overrides, plan.ConfigOverrides, &resp.State)...)
 }
 
 func (r *networkResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -224,8 +263,13 @@ func (r *networkResource) Read(ctx context.Context, req resource.ReadRequest, re
 		resp.Diagnostics.AddError("Unable to read network", fmt.Sprintf("network %q: %s", state.ID.ValueString(), err))
 		return
 	}
+	overrides, err := r.client.GetNetworkConfigOverrides(ctx, state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to read network config overrides", fmt.Sprintf("network %q: %s", state.ID.ValueString(), err))
+		return
+	}
 
-	resp.Diagnostics.Append(r.setState(ctx, network, &resp.State)...)
+	resp.Diagnostics.Append(r.setState(ctx, network, overrides, state.ConfigOverrides, &resp.State)...)
 }
 
 func (r *networkResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -258,7 +302,24 @@ func (r *networkResource) Update(ctx context.Context, req resource.UpdateRequest
 		}
 	}
 
-	resp.Diagnostics.Append(r.setState(ctx, network, &resp.State)...)
+	overrides, diags := expandConfigOverrides(ctx, plan.ConfigOverrides)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// Re-sending unchanged overrides would still push new config to every
+	// host in the network, so the list is only written when it changed.
+	if plan.ConfigOverrides.IsUnknown() || plan.ConfigOverrides.Equal(state.ConfigOverrides) {
+		overrides, err = r.client.GetNetworkConfigOverrides(ctx, id)
+	} else {
+		overrides, err = r.client.SetNetworkConfigOverrides(ctx, id, overrides)
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to set network config overrides", fmt.Sprintf("network %q: %s", id, err))
+		return
+	}
+
+	resp.Diagnostics.Append(r.setState(ctx, network, overrides, plan.ConfigOverrides, &resp.State)...)
 }
 
 func (r *networkResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -270,7 +331,7 @@ func (r *networkResource) Delete(ctx context.Context, req resource.DeleteRequest
 
 	err := r.client.DeleteNetwork(ctx, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete network", fmt.Sprintf("network %q: %s", state.ID.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to delete network", fmt.Sprintf("network %q: %s", state.ID.ValueString(), describeError(err)))
 	}
 }
 
@@ -278,8 +339,10 @@ func (r *networkResource) ImportState(ctx context.Context, req resource.ImportSt
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func (r *networkResource) setState(ctx context.Context, n *client.Network, state stateSetter) diag.Diagnostics {
-	m, diags := flattenNetwork(ctx, n)
+// setState writes the network and its overrides into state; ref is the plan
+// or prior state whose override text is kept when semantically equal.
+func (r *networkResource) setState(ctx context.Context, n *client.Network, overrides []client.ConfigOverride, ref types.Set, state stateSetter) diag.Diagnostics {
+	m, diags := flattenNetwork(ctx, n, overrides, ref)
 	if diags.HasError() {
 		return diags
 	}
@@ -288,8 +351,10 @@ func (r *networkResource) setState(ctx context.Context, n *client.Network, state
 }
 
 // flattenNetwork builds the Terraform model shared by the resource and data source.
-func flattenNetwork(ctx context.Context, n *client.Network) (networkModel, diag.Diagnostics) {
+func flattenNetwork(ctx context.Context, n *client.Network, overrides []client.ConfigOverride, ref types.Set) (networkModel, diag.Diagnostics) {
 	cidrs, diags := types.ListValueFrom(ctx, types.StringType, nonNilStrings(n.CIDRs))
+	configOverrides, d := flattenConfigOverrides(ctx, overrides, ref)
+	diags.Append(d...)
 
 	ipv4 := types.StringNull()
 	for _, c := range n.CIDRs {
@@ -309,6 +374,7 @@ func flattenNetwork(ctx context.Context, n *client.Network) (networkModel, diag.
 		Curve:                     types.StringValue(n.Curve),
 		LighthousesAsRelays:       types.BoolValue(n.LighthousesAsRelays),
 		DisableManagedLighthouses: types.BoolValue(n.DisableManagedLighthouses),
+		ConfigOverrides:           configOverrides,
 		OrganizationID:            types.StringValue(n.OrganizationID),
 		SigningCAID:               types.StringValue(n.SigningCAID),
 		CreatedAt:                 types.StringValue(n.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")),

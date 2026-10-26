@@ -33,6 +33,7 @@ resource "definednet_tag" "prod" {
     { key = "lighthouse.dns.host", value = jsonencode("0.0.0.0") },
     { key = "lighthouse.dns.port", value = jsonencode(53) },
     { key = "definednet.dns.resolver_addrs", value = jsonencode(["10.0.0.53"]) },
+    { key = "lighthouse.local_allow_list", value = jsonencode({ interfaces = { "docker.*" = false, "br-.*" = false } }) },
   ]
 
   route_subscriptions = [definednet_route.office.id]
@@ -68,11 +69,22 @@ resource "definednet_tag" "prod" {
 `
 	runUnitTest(t, f, []testStep{
 		{
+			config: `
+resource "definednet_tag" "dup" {
+  name = "env:dup"
+  config_overrides = [
+    { key = "logging.level", value = jsonencode("info") },
+    { key = "logging.level", value = jsonencode("debug") },
+  ]
+}`,
+			expectError: "Duplicate config override key",
+		},
+		{
 			config: create,
 			checks: []resource.TestCheckFunc{
 				resource.TestCheckResourceAttr("definednet_tag.prod", "id", "env:prod"),
 				resource.TestCheckResourceAttr("definednet_tag.prod", "description", "production hosts"),
-				resource.TestCheckResourceAttr("definednet_tag.prod", "config_overrides.#", "3"),
+				resource.TestCheckResourceAttr("definednet_tag.prod", "config_overrides.#", "4"),
 				resource.TestCheckTypeSetElemNestedAttrs("definednet_tag.prod", "config_overrides.*", map[string]string{
 					"key": "lighthouse.dns.host", "value": `"0.0.0.0"`,
 				}),
@@ -194,6 +206,57 @@ resource "definednet_tag" "prod" {
 					return nil
 				}),
 				resource.TestCheckResourceAttr("definednet_tag.prod", "priority", "1"),
+			},
+		},
+	})
+}
+
+func TestTagDataSource(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+
+	cfg := `
+resource "definednet_tag" "prod" {
+  name        = "env:prod"
+  description = "production hosts"
+  config_overrides = [
+    { key = "lighthouse.dns.port", value = jsonencode(53) },
+  ]
+  route_subscriptions = ["route-X47KHSCOSQJP5IOKNNKRRGHVAI"]
+  firewall_rules = [
+    { protocol = "ICMP" },
+  ]
+}
+
+data "definednet_tag" "prod" {
+  name = definednet_tag.prod.name
+}
+`
+	runUnitTest(t, f, []testStep{
+		{
+			config: `
+data "definednet_tag" "x" {
+  name = "not a tag"
+}`,
+			expectError: "must be a key:value tag",
+		},
+		{
+			config: `
+data "definednet_tag" "x" {
+  name = "env:missing"
+}`,
+			expectError: "Unable to read tag",
+		},
+		{
+			config: cfg,
+			checks: []resource.TestCheckFunc{
+				resource.TestCheckResourceAttr("data.definednet_tag.prod", "id", "env:prod"),
+				resource.TestCheckResourceAttr("data.definednet_tag.prod", "description", "production hosts"),
+				resource.TestCheckResourceAttrPair("data.definednet_tag.prod", "priority", "definednet_tag.prod", "priority"),
+				resource.TestCheckResourceAttr("data.definednet_tag.prod", "config_overrides.#", "1"),
+				resource.TestCheckResourceAttr("data.definednet_tag.prod", "config_overrides.0.value", "53"),
+				resource.TestCheckResourceAttr("data.definednet_tag.prod", "route_subscriptions.#", "1"),
+				resource.TestCheckResourceAttr("data.definednet_tag.prod", "firewall_rules.#", "1"),
 			},
 		},
 	})

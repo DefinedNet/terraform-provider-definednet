@@ -114,3 +114,37 @@ func knownInt64(v attr.Value) (int64, bool) {
 	}
 	return i.ValueInt64(), true
 }
+
+// uniqueOverrideKeys rejects config_overrides that name the same key twice,
+// which the API refuses at apply time.
+type uniqueOverrideKeys struct{}
+
+func (uniqueOverrideKeys) Description(_ context.Context) string {
+	return "each config override key may appear only once"
+}
+
+func (v uniqueOverrideKeys) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (uniqueOverrideKeys) ValidateSet(_ context.Context, req validator.SetRequest, resp *validator.SetResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	seen := map[string]bool{}
+	for _, elem := range req.ConfigValue.Elements() {
+		obj, ok := elem.(types.Object)
+		if !ok || obj.IsUnknown() {
+			continue
+		}
+		key, ok := obj.Attributes()["key"].(types.String)
+		if !ok || key.IsUnknown() || key.IsNull() {
+			continue
+		}
+		if seen[key.ValueString()] {
+			resp.Diagnostics.AddAttributeError(req.Path, "Duplicate config override key",
+				fmt.Sprintf("The key %q is set more than once; the API rejects duplicate override keys.", key.ValueString()))
+		}
+		seen[key.ValueString()] = true
+	}
+}

@@ -49,8 +49,8 @@ resource "definednet_route" "datacenter" {
 ### Optional
 
 - `description` (String) Optional description, at most 255 characters.
-- `firewall_rules` (Attributes Set) Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`. At most 50. (see [below for nested schema](#nestedatt--firewall_rules))
-- `routable_cidrs` (Attributes Map) IPv4 CIDRs reachable through the route, keyed by CIDR. At most 20. (see [below for nested schema](#nestedatt--routable_cidrs))
+- `firewall_rules` (Attributes Set) Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`. (see [below for nested schema](#nestedatt--firewall_rules))
+- `routable_cidrs` (Attributes Map) IPv4 CIDRs reachable through the route, keyed by CIDR. (see [below for nested schema](#nestedatt--routable_cidrs))
 - `router_host_id` (String) ID of the host that forwards traffic for this route. Omit to leave the route without a router.
 
 ### Read-Only
@@ -63,14 +63,14 @@ resource "definednet_route" "datacenter" {
 Required:
 
 - `local_cidr` (String) IPv4 CIDR overlapping one of `routable_cidrs` that this rule applies to, or `ANY` for the whole route.
-- `protocol` (String) Protocol to allow: `ANY`, `TCP`, `UDP`, or `ICMP`.
+- `protocol` (String) Allowed protocol: `ANY`, `TCP`, `UDP`, or `ICMP`.
 
 Optional:
 
-- `allowed_role_id` (String) Only allow hosts with this role. Omit to allow every role.
-- `allowed_tags` (Set of String) Only allow hosts carrying every one of these `key:value` tags. Omit to allow any tags. An empty set means the same thing to the API as omitting the attribute and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
+- `allowed_role_id` (String) Only hosts with this role are allowed. Null allows every role.
+- `allowed_tags` (Set of String) Only hosts carrying every one of these `key:value` tags are allowed. Null allows any tags. An empty set means the same thing to the API as null and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
 - `description` (String) Optional description, at most 255 characters.
-- `port_range` (Attributes) Inclusive port range. Omit to allow every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
+- `port_range` (Attributes) Inclusive port range. Null allows every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))
 
 <a id="nestedatt--firewall_rules--port_range"></a>
 ### Nested Schema for `firewall_rules.port_range`
@@ -78,7 +78,7 @@ Optional:
 Required:
 
 - `from` (Number) First port in the range (1-65535).
-- `to` (Number) Last port in the range (1-65535). Must be at least `from`.
+- `to` (Number) Last port in the range (1-65535), at least `from`.
 
 
 

@@ -1,12 +1,13 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
-	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -110,35 +111,16 @@ func (r *tagResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				// apply can shift this one, and a planned known value would
 				// then fail as an inconsistent result.
 			},
-			"config_overrides": schema.SetNestedAttribute{
-				MarkdownDescription: "Nebula config overrides applied to hosts with this tag. `value` is JSON, so use `jsonencode()`: " +
-					"`jsonencode(\"info\")` for a string key, `jsonencode(4242)` for a number, `jsonencode([\"10.0.0.1\"])` for a list.",
-				Optional: true,
-				Computed: true,
-				Default:  setdefault.StaticValue(types.SetValueMust(configOverrideObjectType, []attr.Value{})),
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"key": schema.StringAttribute{
-							MarkdownDescription: "Dotted nebula config key, e.g. `lighthouse.dns.host`.",
-							Required:            true,
-						},
-						"value": schema.StringAttribute{
-							MarkdownDescription: "JSON-encoded value for the key.",
-							Required:            true,
-							CustomType:          jsontypes.NormalizedType{},
-						},
-					},
-				},
-			},
+			"config_overrides": configOverridesSchema("Nebula config overrides applied to hosts with this tag. `value` is JSON, so use `jsonencode()`: " +
+				"`jsonencode(\"info\")` for a string key, `jsonencode(4242)` for a number, `jsonencode([\"10.0.0.1\"])` for a list."),
 			"route_subscriptions": schema.SetAttribute{
-				MarkdownDescription: "Route IDs every host with this tag is subscribed to. At most 100.",
+				MarkdownDescription: "Route IDs every host with this tag is subscribed to.",
 				Optional:            true,
 				Computed:            true,
 				ElementType:         types.StringType,
 				Default:             setdefault.StaticValue(types.SetValueMust(types.StringType, []attr.Value{})),
-				Validators:          []validator.Set{setvalidator.SizeAtMost(100)},
 			},
-			"firewall_rules": firewallRulesSchema(false, "Inbound firewall rules applied to hosts with this tag, in addition to their role's rules. At most 50."),
+			"firewall_rules": firewallRulesSchema(false, "Inbound firewall rules applied to hosts with this tag, in addition to their role's rules."),
 		},
 	}
 }
@@ -173,7 +155,7 @@ func (r *tagResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	tag, err := r.client.CreateTag(ctx, body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create tag", fmt.Sprintf("tag %q: %s", plan.Name.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to create tag", fmt.Sprintf("tag %q: %s", plan.Name.ValueString(), describeError(err)))
 		return
 	}
 
@@ -246,7 +228,7 @@ func (r *tagResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 
 	err := r.client.DeleteTag(ctx, state.Name.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete tag", fmt.Sprintf("tag %q: %s", state.Name.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to delete tag", fmt.Sprintf("tag %q: %s", state.Name.ValueString(), describeError(err)))
 	}
 }
 
@@ -285,6 +267,33 @@ func (r *tagResource) setState(ctx context.Context, tag *client.Tag, ref tagMode
 	return diags
 }
 
+// configOverridesSchema is the config_overrides attribute shared by tags and
+// networks. It is a set with an empty default, so Terraform owns the whole
+// list the way it does for firewall rules; the API replaces the list on every
+// write and rejects a key given twice.
+func configOverridesSchema(description string) schema.SetNestedAttribute {
+	return schema.SetNestedAttribute{
+		MarkdownDescription: description,
+		Optional:            true,
+		Computed:            true,
+		Default:             setdefault.StaticValue(types.SetValueMust(configOverrideObjectType, []attr.Value{})),
+		Validators:          []validator.Set{uniqueOverrideKeys{}},
+		NestedObject: schema.NestedAttributeObject{
+			Attributes: map[string]schema.Attribute{
+				"key": schema.StringAttribute{
+					MarkdownDescription: "Dotted nebula config key, e.g. `lighthouse.dns.host`.",
+					Required:            true,
+				},
+				"value": schema.StringAttribute{
+					MarkdownDescription: "JSON-encoded value for the key.",
+					Required:            true,
+					CustomType:          jsontypes.NormalizedType{},
+				},
+			},
+		},
+	}
+}
+
 func expandConfigOverrides(ctx context.Context, set types.Set) ([]client.ConfigOverride, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	out := []client.ConfigOverride{}
@@ -308,10 +317,30 @@ func expandConfigOverrides(ctx context.Context, set types.Set) ([]client.ConfigO
 	return out, diags
 }
 
+// canonicalJSON re-encodes a JSON value compactly with object keys sorted, the
+// same text jsonencode() produces. Set elements compare byte for byte, so
+// without a reference value (import, or a key added outside Terraform) the
+// API's own key order would show as a change on the next plan.
+func canonicalJSON(raw json.RawMessage) string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return string(raw)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return string(raw)
+	}
+	return strings.TrimSuffix(buf.String(), "\n")
+}
+
 // flattenConfigOverrides converts API overrides into a Terraform set. When an
 // override's value is semantically the same JSON as the one in ref (plan or
-// prior state), ref's text is kept: the API re-serializes stored values, and
-// preserving the configured text keeps set elements byte-identical.
+// prior state), ref's text is kept so set elements stay byte-identical;
+// otherwise the API value is canonicalized.
 func flattenConfigOverrides(ctx context.Context, overrides []client.ConfigOverride, ref types.Set) (types.Set, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -323,7 +352,7 @@ func flattenConfigOverrides(ctx context.Context, overrides []client.ConfigOverri
 
 	elems := make([]attr.Value, 0, len(overrides))
 	for _, o := range overrides {
-		value := jsontypes.NewNormalizedValue(string(o.Value))
+		value := jsontypes.NewNormalizedValue(canonicalJSON(o.Value))
 		for _, want := range refOverrides {
 			if want.Key != o.Key {
 				continue

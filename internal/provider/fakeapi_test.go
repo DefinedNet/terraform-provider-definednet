@@ -35,18 +35,24 @@ type fakeAPI struct {
 
 	// tagUpdates holds the last PUT body received for each tag.
 	tagUpdates map[string]client.TagUpdateRequest
+	// networkOverrides and networkOverridePuts hold each network's config
+	// overrides and how many times they were PUT.
+	networkOverrides    map[string][]client.ConfigOverride
+	networkOverridePuts map[string]int
 
 	server *httptest.Server
 }
 
 func newFakeAPI() *fakeAPI {
 	f := &fakeAPI{
-		apiKey:     "test-key",
-		roles:      map[string]*client.Role{},
-		tags:       map[string]*client.Tag{},
-		routes:     map[string]*client.Route{},
-		networks:   map[string]*client.Network{},
-		tagUpdates: map[string]client.TagUpdateRequest{},
+		apiKey:              "test-key",
+		roles:               map[string]*client.Role{},
+		tags:                map[string]*client.Tag{},
+		routes:              map[string]*client.Route{},
+		networks:            map[string]*client.Network{},
+		tagUpdates:          map[string]client.TagUpdateRequest{},
+		networkOverrides:    map[string][]client.ConfigOverride{},
+		networkOverridePuts: map[string]int{},
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	return f
@@ -115,8 +121,30 @@ func normalizeRules(rules []client.FirewallRule) []client.FirewallRule {
 }
 
 // reformatJSON simulates the database re-serializing JSON values with
-// different whitespace than the client sent.
+// different whitespace than the client sent and, for objects, keys in an
+// order other than the sorted one jsonencode() produces.
 func reformatJSON(raw json.RawMessage) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err == nil && obj != nil {
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+		var buf bytes.Buffer
+		buf.WriteString("{")
+		for i, k := range keys {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			kb, _ := json.Marshal(k)
+			buf.Write(kb)
+			buf.WriteString(": ")
+			buf.Write(reformatJSON(obj[k]))
+		}
+		buf.WriteString("}")
+		return buf.Bytes()
+	}
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, raw, "", "  "); err != nil {
 		return raw
@@ -135,6 +163,8 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	switch {
+	case len(parts) == 2 && parts[0] == "v2" && parts[1] == "whoami" && r.Method == http.MethodGet:
+		writeData(w, map[string]any{"actorType": "apiKey", "actor": map[string]any{}, "organization": map[string]any{"id": "org-TEST"}})
 	case len(parts) >= 2 && parts[0] == "v1" && parts[1] == "roles":
 		f.handleRoles(w, r, parts[2:])
 	case len(parts) >= 2 && parts[0] == "v1" && parts[1] == "tags":
@@ -150,6 +180,12 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 
 func (f *fakeAPI) handleRoles(w http.ResponseWriter, r *http.Request, rest []string) {
 	switch {
+	case len(rest) == 0 && r.Method == http.MethodGet:
+		writePage(w, r, f.roles, func(role client.Role) any {
+			role.FirewallRules = nil
+			return role
+		})
+
 	case len(rest) == 0 && r.Method == http.MethodPost:
 		var req client.RoleCreateRequest
 		if err := decode(r, &req); err != nil {
@@ -304,13 +340,7 @@ func (f *fakeAPI) handleTags(w http.ResponseWriter, r *http.Request, rest []stri
 
 func (f *fakeAPI) applyTag(tag *client.Tag, desc string, overrides []client.ConfigOverride, subs []string, rules []client.FirewallRule) {
 	tag.Description = desc
-	tag.ConfigOverrides = []client.ConfigOverride{}
-	for _, o := range overrides {
-		tag.ConfigOverrides = append(tag.ConfigOverrides, client.ConfigOverride{Key: o.Key, Value: reformatJSON(o.Value)})
-	}
-	// Return overrides in reverse submission order to prove the provider
-	// does not depend on ordering.
-	sort.SliceStable(tag.ConfigOverrides, func(i, j int) bool { return tag.ConfigOverrides[i].Key > tag.ConfigOverrides[j].Key })
+	tag.ConfigOverrides = storeOverrides(overrides)
 	tag.RouteSubscriptions = subs
 	if tag.RouteSubscriptions == nil {
 		tag.RouteSubscriptions = []string{}
@@ -318,8 +348,25 @@ func (f *fakeAPI) applyTag(tag *client.Tag, desc string, overrides []client.Conf
 	tag.FirewallRules = normalizeRules(rules)
 }
 
+// storeOverrides mimics the API re-formatting values and returning overrides
+// in reverse submission order.
+func storeOverrides(overrides []client.ConfigOverride) []client.ConfigOverride {
+	out := []client.ConfigOverride{}
+	for _, o := range overrides {
+		out = append(out, client.ConfigOverride{Key: o.Key, Value: reformatJSON(o.Value)})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Key > out[j].Key })
+	return out
+}
+
 func (f *fakeAPI) handleRoutes(w http.ResponseWriter, r *http.Request, rest []string) {
 	switch {
+	case len(rest) == 0 && r.Method == http.MethodGet:
+		writePage(w, r, f.routes, func(route client.Route) any {
+			route.FirewallRules = nil
+			return route
+		})
+
 	case len(rest) == 0 && r.Method == http.MethodPost:
 		var req client.RouteRequest
 		if err := decode(r, &req); err != nil {
@@ -372,36 +419,43 @@ func applyRoute(route *client.Route, req client.RouteRequest) {
 	route.FirewallRules = normalizeRules(req.FirewallRules)
 }
 
+// writePage serves one page of items sorted by key, using the offset-cursor
+// scheme of the real API's responses. project mirrors the API returning list
+// items that are summaries of the full object.
+func writePage[T any](w http.ResponseWriter, r *http.Request, items map[string]*T, project func(T) any) {
+	ids := make([]string, 0, len(items))
+	for id := range items {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	pageSize := 25
+	if ps := r.URL.Query().Get("pageSize"); ps != "" {
+		pageSize, _ = strconv.Atoi(ps)
+	}
+	start := 0
+	if c := r.URL.Query().Get("cursor"); c != "" {
+		start, _ = strconv.Atoi(c)
+	}
+	end := start + pageSize
+	if end > len(ids) {
+		end = len(ids)
+	}
+	page := []any{}
+	for _, id := range ids[start:end] {
+		page = append(page, project(*items[id]))
+	}
+	meta := map[string]any{"hasNextPage": end < len(ids), "hasPrevPage": start > 0}
+	if end < len(ids) {
+		meta["nextCursor"] = strconv.Itoa(end)
+	}
+	writeJSON(w, 200, map[string]any{"data": page, "metadata": meta})
+}
+
 func (f *fakeAPI) handleNetworks(w http.ResponseWriter, r *http.Request, version string, rest []string) {
 	switch {
 	case version == "v2" && len(rest) == 0 && r.Method == http.MethodGet:
-		ids := make([]string, 0, len(f.networks))
-		for id := range f.networks {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-
-		pageSize := 25
-		if ps := r.URL.Query().Get("pageSize"); ps != "" {
-			pageSize, _ = strconv.Atoi(ps)
-		}
-		start := 0
-		if c := r.URL.Query().Get("cursor"); c != "" {
-			start, _ = strconv.Atoi(c)
-		}
-		end := start + pageSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		page := []client.Network{}
-		for _, id := range ids[start:end] {
-			page = append(page, *f.networks[id])
-		}
-		meta := map[string]any{"hasNextPage": end < len(ids), "hasPrevPage": start > 0}
-		if end < len(ids) {
-			meta["nextCursor"] = strconv.Itoa(end)
-		}
-		writeJSON(w, 200, map[string]any{"data": page, "metadata": meta})
+		writePage(w, r, f.networks, func(n client.Network) any { return n })
 
 	case version == "v2" && len(rest) == 0 && r.Method == http.MethodPost:
 		if f.missingScopes["networks:create"] {
@@ -428,6 +482,8 @@ func (f *fakeAPI) handleNetworks(w http.ResponseWriter, r *http.Request, version
 		}
 		n.CIDRs = append(n.CIDRs, "fd00:1234:5678:1::/80")
 		f.networks[n.ID] = n
+		// The real API seeds every new network with a generated tun.dev override.
+		f.networkOverrides[n.ID] = []client.ConfigOverride{{Key: "tun.dev", Value: json.RawMessage(`"dn-` + n.ID[len(n.ID)-6:] + `"`)}}
 		writeData(w, n)
 
 	case len(rest) >= 1:
@@ -462,8 +518,20 @@ func (f *fakeAPI) handleNetworks(w http.ResponseWriter, r *http.Request, version
 			}
 			n.CIDRs = append([]string{req.CIDR}, n.CIDRs...)
 			writeData(w, n)
+		case version == "v1" && len(rest) == 2 && rest[1] == "config-overrides" && r.Method == http.MethodGet:
+			writeData(w, client.ConfigOverridesBody{Overrides: f.networkOverrides[n.ID]})
+		case version == "v1" && len(rest) == 2 && rest[1] == "config-overrides" && r.Method == http.MethodPut:
+			var req client.ConfigOverridesBody
+			if err := decode(r, &req); err != nil {
+				writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
+				return
+			}
+			f.networkOverridePuts[n.ID]++
+			f.networkOverrides[n.ID] = storeOverrides(req.Overrides)
+			writeData(w, client.ConfigOverridesBody{Overrides: f.networkOverrides[n.ID]})
 		case version == "v1" && len(rest) == 1 && r.Method == http.MethodDelete:
 			delete(f.networks, rest[0])
+			delete(f.networkOverrides, rest[0])
 			writeData(w, map[string]any{})
 		default:
 			notFound(w)

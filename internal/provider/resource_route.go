@@ -86,12 +86,11 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Optional:            true,
 			},
 			"routable_cidrs": schema.MapNestedAttribute{
-				MarkdownDescription: "IPv4 CIDRs reachable through the route, keyed by CIDR. At most 20.",
+				MarkdownDescription: "IPv4 CIDRs reachable through the route, keyed by CIDR.",
 				Optional:            true,
 				Computed:            true,
 				Default:             mapdefault.StaticValue(types.MapValueMust(routeCIDRObjectType, map[string]attr.Value{})),
 				Validators: []validator.Map{
-					mapvalidator.SizeAtMost(20),
 					mapvalidator.KeysAre(ipv4PrefixValidator{}),
 				},
 				NestedObject: schema.NestedAttributeObject{
@@ -105,7 +104,7 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 					},
 				},
 			},
-			"firewall_rules": firewallRulesSchema(true, "Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`. At most 50."),
+			"firewall_rules": firewallRulesSchema(true, "Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`."),
 		},
 	}
 }
@@ -169,7 +168,7 @@ func (r *routeResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	route, err := r.client.CreateRoute(ctx, body)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to create route", fmt.Sprintf("route %q: %s", plan.Name.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to create route", fmt.Sprintf("route %q: %s", plan.Name.ValueString(), describeError(err)))
 		return
 	}
 
@@ -227,7 +226,7 @@ func (r *routeResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 
 	err := r.client.DeleteRoute(ctx, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
-		resp.Diagnostics.AddError("Unable to delete route", fmt.Sprintf("route %q: %s", state.ID.ValueString(), err))
+		resp.Diagnostics.AddError("Unable to delete route", fmt.Sprintf("route %q: %s", state.ID.ValueString(), describeError(err)))
 	}
 }
 
@@ -259,10 +258,16 @@ func (r *routeResource) expand(ctx context.Context, plan routeModel) (client.Rou
 }
 
 func (r *routeResource) setState(ctx context.Context, route *client.Route, state stateSetter) diag.Diagnostics {
-	rules, diags := flattenFirewallRules(ctx, route.FirewallRules, true)
+	m, diags := flattenRoute(ctx, route)
 	if diags.HasError() {
 		return diags
 	}
+	diags.Append(state.Set(ctx, &m)...)
+	return diags
+}
+
+func flattenRoute(ctx context.Context, route *client.Route) (routeModel, diag.Diagnostics) {
+	rules, diags := flattenFirewallRules(ctx, route.FirewallRules, true)
 
 	cidrElems := make(map[string]attr.Value, len(route.RoutableCIDRs))
 	for cidr, def := range route.RoutableCIDRs {
@@ -274,18 +279,13 @@ func (r *routeResource) setState(ctx context.Context, route *client.Route, state
 	}
 	cidrs, d := types.MapValue(routeCIDRObjectType, cidrElems)
 	diags.Append(d...)
-	if diags.HasError() {
-		return diags
-	}
 
-	m := routeModel{
+	return routeModel{
 		ID:            types.StringValue(route.ID),
 		Name:          types.StringValue(route.Name),
 		Description:   types.StringValue(route.Description),
 		RouterHostID:  types.StringPointerValue(route.RouterHostID),
 		RoutableCIDRs: cidrs,
 		FirewallRules: rules,
-	}
-	diags.Append(state.Set(ctx, &m)...)
-	return diags
+	}, diags
 }
