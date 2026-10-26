@@ -3,6 +3,8 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -28,8 +30,9 @@ type definednetProvider struct {
 }
 
 type providerModel struct {
-	APIKey   types.String `tfsdk:"api_key"`
-	Endpoint types.String `tfsdk:"endpoint"`
+	APIKey                    types.String `tfsdk:"api_key"`
+	Endpoint                  types.String `tfsdk:"endpoint"`
+	SkipCredentialsValidation types.Bool   `tfsdk:"skip_credentials_validation"`
 }
 
 // New returns a provider factory for the given build version.
@@ -60,6 +63,10 @@ func (p *definednetProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 				MarkdownDescription: "Base URL of the API. Falls back to the `" + envEndpoint + "` environment variable, then `" + client.DefaultEndpoint + "`.",
 				Optional:            true,
 			},
+			"skip_credentials_validation": schema.BoolAttribute{
+				MarkdownDescription: "Skip the `GET /v2/whoami` check that verifies the API key when the provider is configured. Defaults to `false`.",
+				Optional:            true,
+			},
 		},
 	}
 }
@@ -78,6 +85,10 @@ func (p *definednetProvider) Configure(ctx context.Context, req provider.Configu
 	if cfg.Endpoint.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Unknown endpoint",
 			"The provider cannot be configured with an unknown endpoint.")
+	}
+	if cfg.SkipCredentialsValidation.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("skip_credentials_validation"), "Unknown skip_credentials_validation",
+			"The provider cannot be configured with an unknown skip_credentials_validation. Set it statically.")
 	}
 	if resp.Diagnostics.HasError() {
 		return
@@ -98,10 +109,30 @@ func (p *definednetProvider) Configure(ctx context.Context, req provider.Configu
 		return
 	}
 
-	c, err := client.New(endpoint, apiKey, client.WithUserAgent("terraform-provider-definednet/"+p.version))
+	ua := "terraform-provider-definednet/" + p.version
+	if req.TerraformVersion != "" {
+		ua += " terraform/" + req.TerraformVersion
+	}
+	c, err := client.New(endpoint, apiKey, client.WithUserAgent(ua))
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to create API client", err.Error())
 		return
+	}
+
+	// Fail at configure time so a bad key surfaces once, not as an error per
+	// resource. The opt-out exists for offline plans and stubbed APIs.
+	if !cfg.SkipCredentialsValidation.ValueBool() {
+		if err := c.Whoami(ctx); err != nil {
+			var apiErr *client.APIError
+			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+				resp.Diagnostics.AddAttributeError(path.Root("api_key"), "Invalid api_key",
+					"The API rejected the key as invalid or revoked: "+err.Error())
+			} else {
+				// Not attributed to api_key: the usual cause is the endpoint or the network.
+				resp.Diagnostics.AddError("Unable to verify API credentials", err.Error())
+			}
+			return
+		}
 	}
 
 	resp.DataSourceData = c

@@ -5,6 +5,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,28 +76,35 @@ type APIError struct {
 	StatusCode int
 	Errors     []ErrorDetail
 	Body       string
+	// RequestID is the API's X-Request-ID, which support can use to find the
+	// request in server logs.
+	RequestID string
 }
 
 func (e *APIError) Error() string {
+	s := fmt.Sprintf("api error: HTTP %d", e.StatusCode)
 	if len(e.Errors) == 0 {
-		body := strings.TrimSpace(e.Body)
-		if body == "" {
-			return fmt.Sprintf("api error: HTTP %d", e.StatusCode)
+		if body := strings.TrimSpace(e.Body); body != "" {
+			s += ": " + body
 		}
-		return fmt.Sprintf("api error: HTTP %d: %s", e.StatusCode, body)
+	} else {
+		parts := make([]string, 0, len(e.Errors))
+		for _, d := range e.Errors {
+			p := d.Code
+			if d.Message != "" {
+				p += ": " + d.Message
+			}
+			if d.Path != "" {
+				p += " (" + d.Path + ")"
+			}
+			parts = append(parts, p)
+		}
+		s += ": " + strings.Join(parts, "; ")
 	}
-	parts := make([]string, 0, len(e.Errors))
-	for _, d := range e.Errors {
-		s := d.Code
-		if d.Message != "" {
-			s += ": " + d.Message
-		}
-		if d.Path != "" {
-			s += " (" + d.Path + ")"
-		}
-		parts = append(parts, s)
+	if e.RequestID != "" {
+		s += " (request id " + e.RequestID + ")"
 	}
-	return fmt.Sprintf("api error: HTTP %d: %s", e.StatusCode, strings.Join(parts, "; "))
+	return s
 }
 
 // HasCode reports whether any error detail carries the given code.
@@ -170,7 +178,16 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, err
+			// Same POST rule as the 5xx case below: the connection can drop
+			// after the server committed the create.
+			if method == http.MethodPost || attempt == maxAttempts || permanentTransportError(err) {
+				return nil, err
+			}
+			lastErr = err
+			if err := wait(ctx, attempt); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		respBody, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -193,7 +210,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return env.Metadata, nil
 		}
 
-		apiErr := &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+		apiErr := &APIError{StatusCode: resp.StatusCode, Body: string(respBody), RequestID: resp.Header.Get("X-Request-ID")}
 		var errEnv struct {
 			Errors []ErrorDetail `json:"errors"`
 		}
@@ -211,13 +228,29 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return nil, apiErr
 		}
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(retryBackoff * time.Duration(attempt)):
+		if err := wait(ctx, attempt); err != nil {
+			return nil, err
 		}
 	}
 	return nil, lastErr
+}
+
+// permanentTransportError reports a failure no retry can fix. Like
+// go-retryablehttp, only TLS verification is treated as permanent; DNS and
+// connection failures are often transient under resolver or LB restarts.
+func permanentTransportError(err error) bool {
+	var certErr *tls.CertificateVerificationError
+	return errors.As(err, &certErr)
+}
+
+// wait sleeps for the attempt's backoff unless ctx ends first.
+func wait(ctx context.Context, attempt int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(retryBackoff * time.Duration(attempt)):
+		return nil
+	}
 }
 
 // pathSegment escapes a value for use as a single URL path segment. Tag names

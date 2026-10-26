@@ -36,3 +36,4 @@ provider "definednet" {
 
 - `api_key` (String, Sensitive) API key used as the bearer token. Falls back to the `DEFINEDNET_API_KEY` environment variable.
 - `endpoint` (String) Base URL of the API. Falls back to the `DEFINEDNET_ENDPOINT` environment variable, then `https://api.defined.net`.
+- `skip_credentials_validation` (Boolean) Skip the `GET /v2/whoami` check that verifies the API key when the provider is configured. Defaults to `false`.

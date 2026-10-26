@@ -153,6 +153,7 @@ func reformatJSON(raw json.RawMessage) json.RawMessage {
 }
 
 func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Request-ID", newID("req"))
 	if r.Header.Get("Authorization") != "Bearer "+f.apiKey {
 		writeErr(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "unauthorized", "")
 		return

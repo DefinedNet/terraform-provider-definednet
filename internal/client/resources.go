@@ -9,6 +9,10 @@ import (
 
 // Whoami checks that the API key is accepted. GET /v2/whoami is open to any
 // actor, so it needs no scope; the response body is not needed.
+func (c *Client) Whoami(ctx context.Context) error {
+	_, err := c.do(ctx, http.MethodGet, "/v2/whoami", nil, nil, nil)
+	return err
+}
 
 // Roles
 

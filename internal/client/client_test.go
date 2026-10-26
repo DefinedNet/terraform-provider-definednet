@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -92,6 +93,46 @@ func TestRetryPolicyByMethod(t *testing.T) {
 	}
 }
 
+// flakyTransport fails the first fails round trips with a transport error.
+type flakyTransport struct {
+	fails, calls int
+}
+
+func (t *flakyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	t.calls++
+	if t.calls <= t.fails {
+		return nil, errors.New("connection reset by peer")
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestRetryOnTransportError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"id":"role-A","name":"a","firewallRules":[]},"metadata":{}}`))
+	}))
+	defer srv.Close()
+
+	tr := &flakyTransport{fails: 1}
+	c, err := New(srv.URL, "k", WithHTTPClient(&http.Client{Transport: tr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetRole(context.Background(), "role-A"); err != nil {
+		t.Fatal(err)
+	}
+	if tr.calls != 2 {
+		t.Fatalf("GET was sent %d times, want 2", tr.calls)
+	}
+
+	tr.calls = 0
+	if _, err := c.CreateRole(context.Background(), RoleCreateRequest{Name: "x"}); err == nil {
+		t.Fatal("expected error")
+	}
+	if tr.calls != 1 {
+		t.Fatalf("POST was sent %d times, want 1", tr.calls)
+	}
+}
+
 func TestNewValidation(t *testing.T) {
 	if _, err := New("", ""); err == nil {
 		t.Fatal("expected error for missing api key")
@@ -105,5 +146,23 @@ func TestNewValidation(t *testing.T) {
 	}
 	if c.endpoint != DefaultEndpoint {
 		t.Fatalf("got endpoint %q", c.endpoint)
+	}
+}
+
+func TestNoRetryOnTLSError(t *testing.T) {
+	// httptest's certificate is not trusted by the default transport.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	tr := &flakyTransport{}
+	c, err := New(srv.URL, "k", WithHTTPClient(&http.Client{Transport: tr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetRole(context.Background(), "role-A"); err == nil {
+		t.Fatal("expected TLS error")
+	}
+	if tr.calls != 1 {
+		t.Fatalf("GET was sent %d times, want 1", tr.calls)
 	}
 }
