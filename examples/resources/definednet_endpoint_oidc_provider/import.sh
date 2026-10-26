@@ -1,0 +1,1 @@
+terraform import definednet_endpoint_oidc_provider.okta endpointoidc-X47KHSCOSQJP5IOKNNKRRGHVAI

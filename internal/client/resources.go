@@ -239,3 +239,34 @@ func (c *Client) VerifyDomain(ctx context.Context, id string) error {
 	_, err := c.do(ctx, http.MethodPost, "/v1/domains/"+pathSegment(id)+"/verify", nil, nil, nil)
 	return err
 }
+
+// Endpoint OIDC providers
+
+func (c *Client) CreateEndpointOIDCProvider(ctx context.Context, req EndpointOIDCProviderRequest) (*EndpointOIDCProvider, error) {
+	var out EndpointOIDCProvider
+	if _, err := c.do(ctx, http.MethodPost, "/v1/endpoint-oidc-providers", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetEndpointOIDCProvider(ctx context.Context, id string) (*EndpointOIDCProvider, error) {
+	var out EndpointOIDCProvider
+	if _, err := c.do(ctx, http.MethodGet, "/v1/endpoint-oidc-providers/"+pathSegment(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) UpdateEndpointOIDCProvider(ctx context.Context, id string, req EndpointOIDCProviderRequest) (*EndpointOIDCProvider, error) {
+	var out EndpointOIDCProvider
+	if _, err := c.do(ctx, http.MethodPut, "/v1/endpoint-oidc-providers/"+pathSegment(id), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteEndpointOIDCProvider(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/v1/endpoint-oidc-providers/"+pathSegment(id), nil, nil, nil)
+	return err
+}

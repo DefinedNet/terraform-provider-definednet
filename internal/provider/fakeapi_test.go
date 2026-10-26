@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +35,11 @@ type fakeAPI struct {
 	routes   map[string]*client.Route
 	networks map[string]*client.Network
 	domains  map[string]*client.Domain
+	oidc     map[string]*client.EndpointOIDCProvider
+	// oidcSecrets holds each provider's current client secret; oidcSecretPuts
+	// records the clientSecret of every PUT (nil when the body sent null).
+	oidcSecrets    map[string]string
+	oidcSecretPuts map[string][]*string
 	// domainVerifyFailures is how many verify calls still fail with
 	// domainVerifyFailCode (NXDOMAIN when empty), standing in for a TXT
 	// record that has not propagated yet.
@@ -60,6 +67,9 @@ func newFakeAPI() *fakeAPI {
 		routes:              map[string]*client.Route{},
 		networks:            map[string]*client.Network{},
 		domains:             map[string]*client.Domain{},
+		oidc:                map[string]*client.EndpointOIDCProvider{},
+		oidcSecrets:         map[string]string{},
+		oidcSecretPuts:      map[string][]*string{},
 		tagUpdates:          map[string]client.TagUpdateRequest{},
 		networkOverrides:    map[string][]client.ConfigOverride{},
 		networkOverridePuts: map[string]int{},
@@ -187,6 +197,8 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 		f.handleNetworks(w, r, parts[0], parts[2:])
 	case len(parts) >= 2 && parts[0] == "v1" && parts[1] == "domains":
 		f.handleDomains(w, r, parts[2:])
+	case len(parts) >= 2 && parts[0] == "v1" && parts[1] == "endpoint-oidc-providers":
+		f.handleOIDCProviders(w, r, parts[2:])
 	default:
 		notFound(w)
 	}
@@ -626,6 +638,146 @@ func (f *fakeAPI) handleDomains(w http.ResponseWriter, r *http.Request, rest []s
 				return
 			}
 			d.IsVerified = true
+			writeData(w, map[string]any{})
+		default:
+			writeErr(w, 405, "ERR_METHOD_NOT_ALLOWED", "method not allowed", "")
+		}
+	default:
+		notFound(w)
+	}
+}
+
+// recordAutoAssignCIDRs mimics the API's db layer: an IPv4-only (v1) network
+// forces its own CIDR, and the network's IPv6 prefix is appended when missing.
+func recordAutoAssignCIDRs(n *client.Network, cidrs []string) []string {
+	var v4, v6 string
+	for _, c := range n.CIDRs {
+		if strings.Contains(c, ":") {
+			v6 = c
+		} else {
+			v4 = c
+		}
+	}
+	if n.CertVersion == 1 && v4 != "" {
+		cidrs = []string{v4}
+	}
+	if v6 != "" {
+		sent := false
+		for _, c := range cidrs {
+			if strings.Contains(c, ":") {
+				sent = true
+			}
+		}
+		if !sent {
+			cidrs = append(cidrs, v6)
+		}
+	}
+	return cidrs
+}
+
+// applyOIDC validates and stores a create or update body, returning false after
+// writing the API's error.
+func (f *fakeAPI) applyOIDC(w http.ResponseWriter, p *client.EndpointOIDCProvider, req client.EndpointOIDCProviderRequest) bool {
+	if req.Enabled && req.DomainID == nil {
+		writeErr(w, 400, "ERR_MISSING_VALUE", "domainID must be set if enabled is true", "domainID")
+		return false
+	}
+	for _, other := range f.oidc {
+		if other != p && other.Name == req.Name {
+			writeErr(w, 400, "ERR_DUPLICATE_VALUE", "value already exists", "name")
+			return false
+		}
+	}
+	n, ok := f.networks[req.NetworkID]
+	if !ok {
+		writeErr(w, 400, "ERR_INVALID_REFERENCE", "referenced value is invalid", "networkID")
+		return false
+	}
+	if req.RoleID != nil {
+		if _, ok := f.roles[*req.RoleID]; !ok {
+			writeErr(w, 400, "ERR_INVALID_REFERENCE", "referenced value is invalid", "roleID")
+			return false
+		}
+	}
+	if req.DomainID != nil {
+		d, ok := f.domains[*req.DomainID]
+		if !ok {
+			writeErr(w, 400, "ERR_INVALID_REFERENCE", "referenced value is invalid", "domainID")
+			return false
+		}
+		if req.Enabled && !d.IsVerified {
+			writeErr(w, 400, "ERR_DOMAIN_NOT_VERIFIED", "cannot create an enabled endpoint OIDC provider without a verified domain", "domainID")
+			return false
+		}
+		if req.Enabled {
+			for _, other := range f.oidc {
+				if other != p && other.Enabled && other.DomainID != nil && *other.DomainID == *req.DomainID {
+					writeErr(w, 400, "ERR_DOMAIN_ALREADY_ENABLED", "domain already has an enabled provider", "domainID")
+					return false
+				}
+			}
+		}
+	}
+	// The real API only accepts the network's own prefixes, compared as parsed
+	// prefixes so alternate spellings of the same prefix pass.
+	for i, c := range req.AutoAssignCIDRs {
+		pfx, err := netip.ParsePrefix(c)
+		if err != nil || !slices.ContainsFunc(n.CIDRs, func(nc string) bool { return netip.MustParsePrefix(nc) == pfx }) {
+			writeErr(w, 400, "ERR_OUT_OF_RANGE", "CIDR prefix does not match the network's prefix", fmt.Sprintf("autoAssignCIDRs[%d]", i))
+			return false
+		}
+	}
+	p.Name, p.ClientID, p.IssuerURL, p.Enabled = req.Name, req.ClientID, req.IssuerURL, req.Enabled
+	p.NetworkID, p.RoleID, p.AuthValidityHours, p.DomainID = req.NetworkID, req.RoleID, req.AuthValidityHours, req.DomainID
+	p.AutoAssignCIDRs = recordAutoAssignCIDRs(n, req.AutoAssignCIDRs)
+	return true
+}
+
+func (f *fakeAPI) handleOIDCProviders(w http.ResponseWriter, r *http.Request, rest []string) {
+	switch {
+	case len(rest) == 0 && r.Method == http.MethodPost:
+		var req client.EndpointOIDCProviderRequest
+		if err := decode(r, &req); err != nil {
+			writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
+			return
+		}
+		if req.ClientSecret == nil || *req.ClientSecret == "" {
+			writeErr(w, 400, "ERR_INVALID_VALUE_LENGTH", "must be between 1 and 255", "clientSecret")
+			return
+		}
+		p := &client.EndpointOIDCProvider{ID: newID("endpointoidc")}
+		if !f.applyOIDC(w, p, req) {
+			return
+		}
+		f.oidc[p.ID] = p
+		f.oidcSecrets[p.ID] = *req.ClientSecret
+		writeData(w, p)
+
+	case len(rest) == 1:
+		p, ok := f.oidc[rest[0]]
+		if !ok {
+			notFound(w)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeData(w, p)
+		case http.MethodPut:
+			var req client.EndpointOIDCProviderRequest
+			if err := decode(r, &req); err != nil {
+				writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
+				return
+			}
+			if !f.applyOIDC(w, p, req) {
+				return
+			}
+			f.oidcSecretPuts[p.ID] = append(f.oidcSecretPuts[p.ID], req.ClientSecret)
+			if req.ClientSecret != nil {
+				f.oidcSecrets[p.ID] = *req.ClientSecret
+			}
+			writeData(w, p)
+		case http.MethodDelete:
+			delete(f.oidc, rest[0])
 			writeData(w, map[string]any{})
 		default:
 			writeErr(w, 405, "ERR_METHOD_NOT_ALLOWED", "method not allowed", "")

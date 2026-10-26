@@ -177,3 +177,35 @@ type Domain struct {
 type DomainCreateRequest struct {
 	DomainName string `json:"domainName"`
 }
+
+// EndpointOIDCProvider is the API representation of an endpoint SSO provider.
+// The client secret is never returned. AutoAssignCIDRs is what the server
+// stored, which may include prefixes the network forces on every host.
+type EndpointOIDCProvider struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	ClientID          string   `json:"clientID"`
+	IssuerURL         string   `json:"issuerURL"`
+	Enabled           bool     `json:"enabled"`
+	NetworkID         string   `json:"networkID"`
+	RoleID            *string  `json:"roleID"`
+	AuthValidityHours *int64   `json:"authValidityHours"`
+	DomainID          *string  `json:"domainID"`
+	AutoAssignCIDRs   []string `json:"autoAssignCIDRs"`
+}
+
+// EndpointOIDCProviderRequest is the body of POST /v1/endpoint-oidc-providers
+// and PUT /v1/endpoint-oidc-providers/{id}. PUT is a full replacement except
+// that a null ClientSecret keeps the stored secret.
+type EndpointOIDCProviderRequest struct {
+	Name              string   `json:"name"`
+	ClientID          string   `json:"clientID"`
+	ClientSecret      *string  `json:"clientSecret"`
+	IssuerURL         string   `json:"issuerURL"`
+	Enabled           bool     `json:"enabled"`
+	NetworkID         string   `json:"networkID"`
+	RoleID            *string  `json:"roleID"`
+	AuthValidityHours *int64   `json:"authValidityHours"`
+	DomainID          *string  `json:"domainID"`
+	AutoAssignCIDRs   []string `json:"autoAssignCIDRs"`
+}

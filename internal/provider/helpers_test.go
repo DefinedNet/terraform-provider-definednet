@@ -16,7 +16,14 @@ type testStep struct {
 	importState        bool
 	importResource     string
 	importVerifyIgnore []string
-	planChecks         []plancheck.PlanCheck
+	// importPersist keeps the imported state for the following steps so they
+	// exercise a resource whose state came from import, not from create.
+	importPersist bool
+	// importStateID imports this ID instead of the one Terraform created.
+	importStateID string
+	planChecks    []plancheck.PlanCheck
+	// preConfig runs before the step, for changes made behind Terraform's back.
+	preConfig func()
 }
 
 // runUnitTest runs steps against the fake API (nil means no provider block is
@@ -30,12 +37,19 @@ func runUnitTest(t *testing.T, f *fakeAPI, steps []testStep) {
 
 	tfSteps := make([]resource.TestStep, 0, len(steps))
 	for _, s := range steps {
-		step := resource.TestStep{}
+		step := resource.TestStep{PreConfig: s.preConfig}
 		if s.importState {
 			step.ResourceName = s.importResource
 			step.ImportState = true
-			step.ImportStateVerify = true
+			// A fresh import has no prior state to verify against.
+			step.ImportStateVerify = s.importStateID == ""
 			step.ImportStateVerifyIgnore = s.importVerifyIgnore
+			step.ImportStatePersist = s.importPersist
+			step.ImportStateId = s.importStateID
+			if s.importStateID != "" {
+				// Import into an empty state needs the resource block to exist.
+				step.Config = prefix + s.config
+			}
 		} else {
 			step.Config = prefix + s.config
 			step.Check = resource.ComposeAggregateTestCheckFunc(s.checks...)

@@ -40,7 +40,8 @@ provider "definednet" {
 The API key needs the `<resource>:create|read|update|delete` scopes for each
 resource type it manages, plus `<resource>:list` for lookups by name in the
 network, role, and route data sources. Domains use `domains:create|read|delete`
-plus `domains:verify` for `definednet_domain_verification`.
+plus `domains:verify` for `definednet_domain_verification`; endpoint OIDC
+providers use `endpoint-oidc-providers:create|read|update|delete`.
 Existing resources can be brought under management with `terraform import`;
 see the import examples in `docs/`.
 
@@ -57,6 +58,15 @@ role, since Terraform does not let a resource reference its own `id`. It is the
 only accepted spelling of the role's own ID, and the resource reports it back
 as `self`, so copying one role's `firewall_rules` into another role grants the
 copy's own hosts. Use the `definednet_role` data source to read literal IDs.
+
+### Endpoint OIDC client secrets
+
+The API never returns a provider's client secret, so Terraform cannot see a
+secret rotated outside Terraform; every update re-sends the configured one.
+Prefer `client_secret_wo` with `client_secret_wo_version` (Terraform 1.11 or
+OpenTofu 1.11 and newer), which keeps the secret out of plan and state, and
+bump the version when the secret rotates. `client_secret` stores the secret in
+state for older Terraform.
 
 ### Config overrides
 
