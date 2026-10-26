@@ -122,3 +122,12 @@ a time and stay within the free plan's limits (two routes, ten networks).
 
 Every object the tests create is named with a `tf-acc` prefix. `make sweep`
 deletes those, plus the `DEFINEDNET_ACC_DOMAIN` domain, if a run is interrupted.
+
+## Releasing
+
+Push a tag like `v0.1.0`. The release workflow builds every platform with
+goreleaser, signs the checksums with the key in the `GPG_PRIVATE_KEY` and
+`PASSPHRASE` repository secrets, and publishes a GitHub release. The Terraform
+Registry ingests the release through its webhook and verifies the signature
+against the public key registered under the `definednet` namespace, so the key
+must be registered before the first tag.
