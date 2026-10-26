@@ -39,7 +39,8 @@ provider "definednet" {
 
 The API key needs the `<resource>:create|read|update|delete` scopes for each
 resource type it manages, plus `<resource>:list` for lookups by name in the
-network, role, and route data sources.
+network, role, and route data sources. Domains use `domains:create|read|delete`
+plus `domains:verify` for `definednet_domain_verification`.
 Existing resources can be brought under management with `terraform import`;
 see the import examples in `docs/`.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -165,5 +166,31 @@ func (v noSelfRoleValidator) ValidateString(ctx context.Context, req validator.S
 	if req.ConfigValue.ValueString() == selfRoleID {
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid allowed_role_id",
 			v.Description(ctx)+"; use a role's id here.")
+	}
+}
+
+// domainNameValidator rejects what the API would reject (no leading or
+// trailing dot, at least one dot) and anything strings.ToLower would change,
+// because the API lowercases the name with it and an uppercase letter in
+// configuration would otherwise never match the refreshed state.
+type domainNameValidator struct{}
+
+func (domainNameValidator) Description(_ context.Context) string {
+	return "must be a lowercase domain name with at least one dot and no leading or trailing dot"
+}
+
+func (v domainNameValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v domainNameValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	s := req.ConfigValue.ValueString()
+	ok := s == strings.ToLower(s) && s == strings.TrimSpace(s) &&
+		!strings.HasPrefix(s, ".") && !strings.HasSuffix(s, ".") && strings.Contains(s, ".")
+	if !ok {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid domain name", v.Description(ctx))
 	}
 }

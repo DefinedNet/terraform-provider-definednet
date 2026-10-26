@@ -1,0 +1,1 @@
+terraform import definednet_domain.corp domain-NFDI5G3RPXLHCPEXBVKEVLWPNI

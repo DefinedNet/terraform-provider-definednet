@@ -159,3 +159,21 @@ type NetworkAddCIDRRequest struct {
 type ConfigOverridesBody struct {
 	Overrides []ConfigOverride `json:"overrides"`
 }
+
+// Domain is the API representation of a domain. Zone and Value describe the
+// TXT record that proves ownership: a record named Zone under DomainName
+// holding Value. Both are derived from the domain and organization, so they
+// never change for a given domain.
+type Domain struct {
+	ID         string `json:"id"`
+	DomainName string `json:"domainName"`
+	IsVerified bool   `json:"isVerified"`
+	Zone       string `json:"zone"`
+	Value      string `json:"value"`
+}
+
+// DomainCreateRequest is the body of POST /v1/domains. Domains cannot be
+// renamed; the API has no update.
+type DomainCreateRequest struct {
+	DomainName string `json:"domainName"`
+}

@@ -32,6 +32,13 @@ type fakeAPI struct {
 	tags     map[string]*client.Tag
 	routes   map[string]*client.Route
 	networks map[string]*client.Network
+	domains  map[string]*client.Domain
+	// domainVerifyFailures is how many verify calls still fail with
+	// domainVerifyFailCode (NXDOMAIN when empty), standing in for a TXT
+	// record that has not propagated yet.
+	domainVerifyFailures   int
+	domainVerifyFailCode   string
+	domainVerifyFailStatus int
 
 	// tagUpdates holds the last PUT body received for each tag.
 	tagUpdates map[string]client.TagUpdateRequest
@@ -52,6 +59,7 @@ func newFakeAPI() *fakeAPI {
 		tags:                map[string]*client.Tag{},
 		routes:              map[string]*client.Route{},
 		networks:            map[string]*client.Network{},
+		domains:             map[string]*client.Domain{},
 		tagUpdates:          map[string]client.TagUpdateRequest{},
 		networkOverrides:    map[string][]client.ConfigOverride{},
 		networkOverridePuts: map[string]int{},
@@ -177,6 +185,8 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 		f.handleRoutes(w, r, parts[2:])
 	case len(parts) >= 2 && parts[1] == "networks":
 		f.handleNetworks(w, r, parts[0], parts[2:])
+	case len(parts) >= 2 && parts[0] == "v1" && parts[1] == "domains":
+		f.handleDomains(w, r, parts[2:])
 	default:
 		notFound(w)
 	}
@@ -561,6 +571,64 @@ func (f *fakeAPI) handleNetworks(w http.ResponseWriter, r *http.Request, version
 			writeData(w, map[string]any{})
 		default:
 			notFound(w)
+		}
+	default:
+		notFound(w)
+	}
+}
+
+func (f *fakeAPI) handleDomains(w http.ResponseWriter, r *http.Request, rest []string) {
+	switch {
+	case len(rest) == 0 && r.Method == http.MethodPost:
+		var req client.DomainCreateRequest
+		if err := decode(r, &req); err != nil {
+			writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
+			return
+		}
+		name := strings.ToLower(req.DomainName)
+		for _, existing := range f.domains {
+			if existing.DomainName == name {
+				writeErr(w, 400, "ERR_DUPLICATE_VALUE", "value already exists", "domainName")
+				return
+			}
+		}
+		d := &client.Domain{
+			ID: newID("domain"), DomainName: name,
+			Zone: "_defined_" + strings.ToLower(newID("")[1:9]), Value: newID("") + "=",
+		}
+		f.domains[d.ID] = d
+		writeData(w, d)
+
+	case len(rest) >= 1:
+		d, ok := f.domains[rest[0]]
+		if !ok {
+			notFound(w)
+			return
+		}
+		switch {
+		case len(rest) == 1 && r.Method == http.MethodGet:
+			writeData(w, d)
+		case len(rest) == 1 && r.Method == http.MethodDelete:
+			delete(f.domains, rest[0])
+			writeData(w, map[string]any{})
+		case len(rest) == 2 && rest[1] == "verify" && r.Method == http.MethodPost:
+			if f.domainVerifyFailures > 0 {
+				f.domainVerifyFailures--
+				code := f.domainVerifyFailCode
+				if code == "" {
+					code = "ERR_DOMAIN_VERIFICATION_FAILED_NXDOMAIN"
+				}
+				status := f.domainVerifyFailStatus
+				if status == 0 {
+					status = 400
+				}
+				writeErr(w, status, code, "verification failed", "")
+				return
+			}
+			d.IsVerified = true
+			writeData(w, map[string]any{})
+		default:
+			writeErr(w, 405, "ERR_METHOD_NOT_ALLOWED", "method not allowed", "")
 		}
 	default:
 		notFound(w)

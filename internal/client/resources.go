@@ -208,3 +208,34 @@ func listAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
 		cursor = pm.NextCursor
 	}
 }
+
+// Domains
+
+func (c *Client) CreateDomain(ctx context.Context, req DomainCreateRequest) (*Domain, error) {
+	var out Domain
+	if _, err := c.do(ctx, http.MethodPost, "/v1/domains", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetDomain(ctx context.Context, id string) (*Domain, error) {
+	var out Domain
+	if _, err := c.do(ctx, http.MethodGet, "/v1/domains/"+pathSegment(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteDomain(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/v1/domains/"+pathSegment(id), nil, nil, nil)
+	return err
+}
+
+// VerifyDomain asks the API to look up the domain's TXT record. The lookup
+// happens server-side, so a record that has not propagated yet fails with
+// one of the ERR_DOMAIN_VERIFICATION_* codes rather than succeeding later.
+func (c *Client) VerifyDomain(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodPost, "/v1/domains/"+pathSegment(id)+"/verify", nil, nil, nil)
+	return err
+}

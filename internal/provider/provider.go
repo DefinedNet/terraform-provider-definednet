@@ -49,7 +49,7 @@ func (p *definednetProvider) Metadata(_ context.Context, _ provider.MetadataRequ
 
 func (p *definednetProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manage Defined Networking networks, roles, tags, and routes through the " +
+		MarkdownDescription: "Manage Defined Networking networks, roles, tags, routes, and SSO domains through the " +
 			"[Defined Networking API](https://docs.defined.net/api/defined-networking-api/).\n\n" +
 			"Create an API key at https://admin.defined.net/settings/api-keys with the scopes for the " +
 			"resources you manage (for example `roles:create`, `roles:read`, `roles:update`, `roles:delete`).",
@@ -145,6 +145,8 @@ func (p *definednetProvider) Resources(_ context.Context) []func() resource.Reso
 		newRoleResource,
 		newTagResource,
 		newRouteResource,
+		newDomainResource,
+		newDomainVerificationResource,
 	}
 }
 
