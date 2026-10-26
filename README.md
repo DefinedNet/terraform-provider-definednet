@@ -51,6 +51,11 @@ Omit `allowed_role_id`, `allowed_tags`, and `port_range` to allow every role,
 tag, or port. `allowed_tags = []` means the same thing to the API as omitting
 it, and the API always reports it back as null; the provider rejects an empty
 set so the plan and the refreshed state agree.
+In a `definednet_role`, `allowed_role_id = "self"` allows hosts with that same
+role, since Terraform does not let a resource reference its own `id`. It is the
+only accepted spelling of the role's own ID, and the resource reports it back
+as `self`, so copying one role's `firewall_rules` into another role grants the
+copy's own hosts. Use the `definednet_role` data source to read literal IDs.
 
 ### Config overrides
 

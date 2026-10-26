@@ -20,6 +20,11 @@ resource "definednet_role" "web" {
       port_range      = { from = 22, to = 22 }
     },
     {
+      protocol        = "ANY"
+      description     = "anything between web servers"
+      allowed_role_id = "self" # Terraform cannot reference definednet_role.web.id from inside itself
+    },
+    {
       protocol = "ICMP"
     },
   ]

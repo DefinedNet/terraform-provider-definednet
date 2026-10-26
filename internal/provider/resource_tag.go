@@ -120,7 +120,7 @@ func (r *tagResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *
 				ElementType:         types.StringType,
 				Default:             setdefault.StaticValue(types.SetValueMust(types.StringType, []attr.Value{})),
 			},
-			"firewall_rules": firewallRulesSchema(false, "Inbound firewall rules applied to hosts with this tag, in addition to their role's rules."),
+			"firewall_rules": firewallRulesSchema(false, false, "Inbound firewall rules applied to hosts with this tag, in addition to their role's rules."),
 		},
 	}
 }

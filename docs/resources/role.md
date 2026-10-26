@@ -38,6 +38,11 @@ resource "definednet_role" "web" {
       port_range      = { from = 22, to = 22 }
     },
     {
+      protocol        = "ANY"
+      description     = "anything between web servers"
+      allowed_role_id = "self" # Terraform cannot reference definednet_role.web.id from inside itself
+    },
+    {
       protocol = "ICMP"
     },
   ]
@@ -54,7 +59,7 @@ resource "definednet_role" "web" {
 ### Optional
 
 - `description` (String) Optional description, at most 255 characters.
-- `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this role. (see [below for nested schema](#nestedatt--firewall_rules))
+- `firewall_rules` (Attributes Set) Inbound firewall rules applied to hosts with this role. `allowed_role_id = "self"` allows hosts with this same role. (see [below for nested schema](#nestedatt--firewall_rules))
 
 ### Read-Only
 
@@ -69,7 +74,7 @@ Required:
 
 Optional:
 
-- `allowed_role_id` (String) Only hosts with this role are allowed. Null allows every role.
+- `allowed_role_id` (String) Only hosts with this role are allowed. Null allows every role. `self` means this role itself and is the only accepted spelling of its own `id`, which Terraform cannot reference from inside the role.
 - `allowed_tags` (Set of String) Only hosts carrying every one of these `key:value` tags are allowed. Null allows any tags. An empty set means the same thing to the API as null and is always reported back as null, so it is rejected to keep the plan and refreshed state in agreement.
 - `description` (String) Optional description, at most 255 characters.
 - `port_range` (Attributes) Inclusive port range. Null allows every port. (see [below for nested schema](#nestedatt--firewall_rules--port_range))

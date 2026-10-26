@@ -148,3 +148,22 @@ func (uniqueOverrideKeys) ValidateSet(_ context.Context, req validator.SetReques
 		seen[key.ValueString()] = true
 	}
 }
+
+// noSelfRoleValidator rejects the selfRoleID placeholder on tag and route
+// rules, which have no own role to resolve it to.
+type noSelfRoleValidator struct{}
+
+func (noSelfRoleValidator) Description(_ context.Context) string {
+	return "\"self\" is only valid in a definednet_role, where it means that role"
+}
+
+func (v noSelfRoleValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v noSelfRoleValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.ValueString() == selfRoleID {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid allowed_role_id",
+			v.Description(ctx)+"; use a role's id here.")
+	}
+}

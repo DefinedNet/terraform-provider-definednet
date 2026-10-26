@@ -104,7 +104,7 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 					},
 				},
 			},
-			"firewall_rules": firewallRulesSchema(true, "Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`."),
+			"firewall_rules": firewallRulesSchema(true, false, "Firewall rules for traffic entering the routed CIDRs. Each rule's `local_cidr` must overlap one of `routable_cidrs`."),
 		},
 	}
 }

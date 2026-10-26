@@ -39,6 +39,8 @@ type fakeAPI struct {
 	// overrides and how many times they were PUT.
 	networkOverrides    map[string][]client.ConfigOverride
 	networkOverridePuts map[string]int
+	// rolePuts counts PUTs per role.
+	rolePuts map[string]int
 
 	server *httptest.Server
 }
@@ -53,6 +55,7 @@ func newFakeAPI() *fakeAPI {
 		tagUpdates:          map[string]client.TagUpdateRequest{},
 		networkOverrides:    map[string][]client.ConfigOverride{},
 		networkOverridePuts: map[string]int{},
+		rolePuts:            map[string]int{},
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	return f
@@ -199,6 +202,9 @@ func (f *fakeAPI) handleRoles(w http.ResponseWriter, r *http.Request, rest []str
 				return
 			}
 		}
+		if !f.validRoleRefs(w, req.FirewallRules) {
+			return
+		}
 		now := time.Now().UTC().Truncate(time.Second)
 		role := &client.Role{
 			ID: newID("role"), Name: req.Name, Description: req.Description,
@@ -222,6 +228,10 @@ func (f *fakeAPI) handleRoles(w http.ResponseWriter, r *http.Request, rest []str
 				writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
 				return
 			}
+			if !f.validRoleRefs(w, req.FirewallRules) {
+				return
+			}
+			f.rolePuts[role.ID]++
 			role.Description = req.Description
 			role.FirewallRules = normalizeRules(req.FirewallRules)
 			role.ModifiedAt = time.Now().UTC().Truncate(time.Second)
@@ -235,6 +245,21 @@ func (f *fakeAPI) handleRoles(w http.ResponseWriter, r *http.Request, rest []str
 	default:
 		notFound(w)
 	}
+}
+
+// validRoleRefs mimics the API refusing an allowedRoleID that is not an
+// existing role, which is what makes a placeholder such as "self" unsendable.
+func (f *fakeAPI) validRoleRefs(w http.ResponseWriter, rules []client.FirewallRule) bool {
+	for _, rule := range rules {
+		if rule.AllowedRoleID == nil {
+			continue
+		}
+		if _, ok := f.roles[*rule.AllowedRoleID]; !ok {
+			writeErr(w, 400, "ERR_INVALID_REFERENCE", "referenced value is invalid", "firewallRules")
+			return false
+		}
+	}
+	return true
 }
 
 // placeTag assigns a priority. New tags go on top (max+1) unless before or

@@ -48,11 +48,16 @@ func firewallRuleObjectType(withLocalCIDR bool) types.ObjectType {
 	return types.ObjectType{AttrTypes: firewallRuleAttrTypes(withLocalCIDR)}
 }
 
+// selfRoleID is the allowed_role_id placeholder for a role's own ID. Real IDs
+// are prefixed role-, so it can never collide with one.
+const selfRoleID = "self"
+
 // Field descriptions shared by the resource and data source schemas.
 const (
 	descRuleProtocol    = "Allowed protocol: `ANY`, `TCP`, `UDP`, or `ICMP`."
 	descRuleDescription = "Optional description, at most 255 characters."
 	descRuleRoleID      = "Only hosts with this role are allowed. Null allows every role."
+	descRuleSelfRoleID  = descRuleRoleID + " `self` means this role itself and is the only accepted spelling of its own `id`, which Terraform cannot reference from inside the role."
 	descRuleTags        = "Only hosts carrying every one of these `key:value` tags are allowed. Null allows any tags."
 	descRulePortRange   = "Inclusive port range. Null allows every port."
 	descRulePortFrom    = "First port in the range (1-65535)."
@@ -63,8 +68,18 @@ const (
 // firewallRulesSchema returns the shared firewall_rules attribute. It is a set
 // because the API returns rules sorted by CIDR and port rather than in
 // submission order. The set defaults to empty so that omitting it and writing
-// [] plan identically, matching the API always returning an array.
-func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNestedAttribute {
+// [] plan identically, matching the API always returning an array. allowSelf
+// admits the selfRoleID placeholder, which only a role can resolve.
+func firewallRulesSchema(withLocalCIDR, allowSelf bool, description string) schema.SetNestedAttribute {
+	roleID := schema.StringAttribute{
+		MarkdownDescription: descRuleRoleID,
+		Optional:            true,
+		Validators:          []validator.String{noSelfRoleValidator{}},
+	}
+	if allowSelf {
+		roleID.MarkdownDescription = descRuleSelfRoleID
+		roleID.Validators = nil
+	}
 	attrs := map[string]schema.Attribute{
 		"protocol": schema.StringAttribute{
 			MarkdownDescription: descRuleProtocol,
@@ -78,10 +93,7 @@ func firewallRulesSchema(withLocalCIDR bool, description string) schema.SetNeste
 			Default:             stringdefault.StaticString(""),
 			Validators:          []validator.String{stringvalidator.UTF8LengthAtMost(255)},
 		},
-		"allowed_role_id": schema.StringAttribute{
-			MarkdownDescription: descRuleRoleID,
-			Optional:            true,
-		},
+		"allowed_role_id": roleID,
 		"allowed_tags": schema.SetAttribute{
 			MarkdownDescription: descRuleTags + " An empty set means the same thing to the API as null and is always reported back as null, " +
 				"so it is rejected to keep the plan and refreshed state in agreement.",
