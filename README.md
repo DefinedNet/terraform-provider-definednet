@@ -110,8 +110,8 @@ priority, reformatted JSON override values, and 403 for missing API key scopes.
 ## Releasing
 
 Push a tag like `v0.1.0`. The release workflow builds every platform with
-goreleaser, signs the checksums with the key in the `GPG_PRIVATE_KEY` and
-`PASSPHRASE` repository secrets, and publishes a GitHub release. The Terraform
-Registry ingests the release through its webhook and verifies the signature
-against the public key registered under the `definednet` namespace, so the key
-must be registered before the first tag.
+goreleaser, signs the checksums with the RSA key (the Registry rejects ECC
+keys) in the `GPG_PRIVATE_KEY` and `PASSPHRASE` repository secrets, and
+publishes a GitHub release. The Terraform Registry ingests the release through
+its webhook and verifies the signature against the public key registered under
+the `definednet` namespace, so the key must be registered before the first tag.
