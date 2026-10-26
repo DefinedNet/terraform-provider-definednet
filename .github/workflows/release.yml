@@ -4,9 +4,11 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]*"
 
-# goreleaser creates the GitHub release and uploads the assets
+# contents: write so goreleaser can create the GitHub release; id-token: write
+# to assume the AWS role that holds the signing key
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -38,14 +40,36 @@ jobs:
           restore-keys: |
             release-go-
 
+      # GitHub holds only the role ARN. The key lives in Secrets Manager behind a
+      # role trusted for v* tags; see ansible docs/terraform-provider-signing.md
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c #v6.2.3
+        with:
+          role-to-assume: ${{ secrets.GPG_SIGNING_ROLE_ARN }}
+          aws-region: us-east-2
+
+      # parse-json-secrets unpacks into GPG_PRIVATE_KEY and GPG_PASSPHRASE, masked
+      - name: Fetch signing key
+        uses: aws-actions/aws-secretsmanager-get-secrets@2cb1a461cbd4865ac4299648312e4704c646cd53 #v3.0.1
+        with:
+          parse-json-secrets: true
+          secret-ids: |
+            GPG,terraform-provider-signing/gpg-key
+
       # The Terraform Registry verifies the SHA256SUMS signature against the
       # public key registered under the definednet namespace
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd #v7.0.0
         id: import_gpg
         with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
+          gpg_private_key: ${{ env.GPG_PRIVATE_KEY }}
+          passphrase: ${{ env.GPG_PASSPHRASE }}
+
+      # The key is in the gpg-agent now; later steps have no use for the raw material
+      - name: Drop the key from the environment
+        run: |
+          echo "GPG_PRIVATE_KEY=" >> "$GITHUB_ENV"
+          echo "GPG_PASSPHRASE=" >> "$GITHUB_ENV"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de #v7.3.0

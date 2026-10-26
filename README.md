@@ -126,8 +126,12 @@ deletes those, plus the `DEFINEDNET_ACC_DOMAIN` domain, if a run is interrupted.
 ## Releasing
 
 Push a tag like `v0.1.0`. The release workflow builds every platform with
-goreleaser, signs the checksums with the RSA key (the Registry rejects ECC
-keys) in the `GPG_PRIVATE_KEY` and `PASSPHRASE` repository secrets, and
-publishes a GitHub release. The Terraform Registry ingests the release through
-its webhook and verifies the signature against the public key registered under
-the `definednet` namespace, so the key must be registered before the first tag.
+goreleaser, signs the checksums, and publishes a GitHub release. The Terraform
+Registry ingests the release through its webhook and verifies the signature
+against the public key registered under the `definednet` namespace, so the key
+must be registered before the first tag.
+
+The signing key lives in AWS Secrets Manager, not GitHub. The workflow assumes a
+role trusted only for `v*` tags of this repository, and the only GitHub secret
+is that role's ARN, `GPG_SIGNING_ROLE_ARN`. Creating and rotating the key is
+documented in the ansible repo under docs/terraform-provider-signing.md.
