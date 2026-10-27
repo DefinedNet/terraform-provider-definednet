@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
 
 // The free plan allows two routes per org, so no test holds more than two.

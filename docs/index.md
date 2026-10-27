@@ -18,7 +18,7 @@ Create an API key at https://admin.defined.net/settings/api-keys with the scopes
 terraform {
   required_providers {
     definednet = {
-      source = "johnmaguire/definednet"
+      source = "definednet/definednet"
     }
   }
 }

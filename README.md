@@ -26,7 +26,7 @@ in `docs/`.
 terraform {
   required_providers {
     definednet = {
-      source = "johnmaguire/definednet"
+      source = "definednet/definednet"
     }
   }
 }
@@ -95,7 +95,7 @@ To use a local build, add a dev override to `~/.terraformrc`:
 ```hcl
 provider_installation {
   dev_overrides {
-    "johnmaguire/definednet" = "/Users/you/go/bin"
+    "definednet/definednet" = "/Users/you/go/bin"
   }
   direct {}
 }

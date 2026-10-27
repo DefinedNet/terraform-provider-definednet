@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
 
 func TestAccRoleResource(t *testing.T) {

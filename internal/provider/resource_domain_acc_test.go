@@ -8,7 +8,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
 
 // Unverified domains need no DNS, so these use throwaway names. Only

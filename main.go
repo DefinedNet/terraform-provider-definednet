@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/provider"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/provider"
 )
 
 // version is set by the build (e.g. -ldflags "-X main.version=1.2.3").
@@ -19,7 +19,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.terraform.io/johnmaguire/definednet",
+		Address: "registry.terraform.io/definednet/definednet",
 		Debug:   debug,
 	})
 	if err != nil {
