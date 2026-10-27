@@ -86,6 +86,7 @@ config_overrides = [
 ```sh
 make build      # builds ./terraform-provider-definednet
 make test       # unit tests against an in-memory fake API (needs a terraform binary on PATH)
+make testacc    # acceptance tests against the real API (see below)
 make docs       # regenerates docs/ from the schema and examples/
 ```
 
@@ -106,3 +107,18 @@ The tests in `internal/provider` run real `terraform` plans and applies against
 `fakeapi_test.go`, which mirrors the API behaviors the provider has to handle:
 rules returned in sorted order, `null` for empty tag lists, server-assigned tag
 priority, reformatted JSON override values, and 403 for missing API key scopes.
+
+### Acceptance tests
+
+`make testacc` creates, updates, imports and destroys real objects. Run it
+against an organization that holds nothing you care about; the tests run one at
+a time and stay within the free plan's limits (two routes, ten networks).
+
+| Variable | Purpose |
+| --- | --- |
+| `DEFINEDNET_API_KEY` | Key for the test organization, with every scope. |
+| `DEFINEDNET_ENDPOINT` | Optional; defaults to `https://api.defined.net`. |
+| `DEFINEDNET_ACC_DOMAIN` | Domain the verification tests verify. Defaults to `tf-acc.test.undefined.works`, whose TXT record matches only the shared test organization. Against your own organization, set a domain you control and publish the `verification_record_name` / `verification_record_value` the domain gets there. |
+
+Every object the tests create is named with a `tf-acc` prefix. `make sweep`
+deletes those, plus the `DEFINEDNET_ACC_DOMAIN` domain, if a run is interrupted.

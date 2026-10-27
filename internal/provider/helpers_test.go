@@ -34,7 +34,14 @@ func runUnitTest(t *testing.T, f *fakeAPI, steps []testStep) {
 	if f != nil {
 		prefix = providerConfig(f)
 	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps:                    buildSteps(prefix, steps),
+	})
+}
 
+// buildSteps prepends prefix, a provider block or nothing, to every config.
+func buildSteps(prefix string, steps []testStep) []resource.TestStep {
 	tfSteps := make([]resource.TestStep, 0, len(steps))
 	for _, s := range steps {
 		step := resource.TestStep{PreConfig: s.preConfig}
@@ -62,11 +69,7 @@ func runUnitTest(t *testing.T, f *fakeAPI, steps []testStep) {
 		}
 		tfSteps = append(tfSteps, step)
 	}
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testProviderFactories,
-		Steps:                    tfSteps,
-	})
+	return tfSteps
 }
 
 // runRemovedOutOfBandTest applies cfg, calls remove to delete the object
