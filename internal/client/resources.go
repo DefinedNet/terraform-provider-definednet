@@ -181,6 +181,19 @@ func (c *Client) ListRoutes(ctx context.Context) ([]Route, error) {
 	return listAll[Route](ctx, c, "/v1/routes")
 }
 
+// ListTags walks every page of GET /v2/tags; /v1/tags has no list route.
+func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
+	return listAll[Tag](ctx, c, "/v2/tags")
+}
+
+func (c *Client) ListDomains(ctx context.Context) ([]Domain, error) {
+	return listAll[Domain](ctx, c, "/v1/domains")
+}
+
+func (c *Client) ListEndpointOIDCProviders(ctx context.Context) ([]EndpointOIDCProvider, error) {
+	return listAll[EndpointOIDCProvider](ctx, c, "/v1/endpoint-oidc-providers")
+}
+
 func listAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
 	var all []T
 	cursor := ""
