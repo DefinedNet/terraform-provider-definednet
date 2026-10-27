@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"github.com/johnmaguire/terraform-provider-definednet/internal/client"
+	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
 
 // accPrefix starts the name of every object the acceptance tests create, so
