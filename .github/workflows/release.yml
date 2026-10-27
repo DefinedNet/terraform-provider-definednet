@@ -40,6 +40,17 @@ jobs:
           restore-keys: |
             release-go-
 
+      # For scripts/kms-sign.py, which goreleaser runs to sign the checksums. The
+      # runner's system Python refuses pip installs (PEP 668). Above the AWS
+      # credentials, so install-time code runs before there is anything to use.
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 #6.2.0
+        with:
+          python-version: '3.12'
+
+      - name: Install boto3
+        run: python3 -m pip install boto3==1.43.119
+
       # GitHub holds only the role ARN. The key lives in KMS and never leaves it;
       # the role may call kms:Sign on it for v* tags only. See ansible
       # docs/terraform-provider-signing.md
@@ -48,16 +59,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.GPG_SIGNING_ROLE_ARN }}
           aws-region: us-east-2
-
-      # For scripts/kms-sign.py, which goreleaser runs to sign the checksums. The
-      # runner's system Python refuses pip installs (PEP 668).
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 #6.2.0
-        with:
-          python-version: '3.12'
-
-      - name: Install boto3
-        run: python3 -m pip install boto3==1.43.119
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de #v7.3.0
