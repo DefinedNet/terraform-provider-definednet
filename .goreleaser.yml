@@ -39,16 +39,15 @@ checksum:
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
+# The private key is in KMS, so the signature comes from scripts/kms-sign.py
+# rather than gpg
 signs:
   - artifacts: checksum
+    cmd: python3
     args:
-      - "--batch"
-      - "--local-user"
-      - "{{ .Env.GPG_FINGERPRINT }}"
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
+      - "scripts/kms-sign.py"
       - "${artifact}"
+      - "${signature}"
 release:
   extra_files:
     - glob: 'terraform-registry-manifest.json'

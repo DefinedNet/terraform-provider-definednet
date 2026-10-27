@@ -131,7 +131,9 @@ Registry ingests the release through its webhook and verifies the signature
 against the public key registered under the `definednet` namespace, so the key
 must be registered before the first tag.
 
-The signing key lives in AWS Secrets Manager, not GitHub. The workflow assumes a
-role trusted only for `v*` tags of this repository, and the only GitHub secret
-is that role's ARN, `GPG_SIGNING_ROLE_ARN`. Creating and rotating the key is
-documented in the ansible repo under docs/terraform-provider-signing.md.
+The signing key is an AWS KMS key and never leaves KMS. The workflow assumes a
+role trusted only for `v*` tags of this repository, and goreleaser runs
+`scripts/kms-sign.py`, which wraps `kms:Sign` in an OpenPGP signature. The only
+GitHub secret is that role's ARN, `GPG_SIGNING_ROLE_ARN`. Creating the key and
+registering its public half are documented in the ansible repo under
+docs/terraform-provider-signing.md.
