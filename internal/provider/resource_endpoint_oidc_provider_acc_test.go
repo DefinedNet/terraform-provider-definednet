@@ -165,3 +165,45 @@ resource "definednet_endpoint_oidc_provider" "p" {
 		return c.DeleteEndpointOIDCProvider(context.Background(), id)
 	})
 }
+
+// With create_before_destroy on the verification, one apply can detach the
+// domain and delete it: the provider is updated before the domain is destroyed.
+func TestAccEndpointOIDCProviderResource_DetachAndDeleteDomain(t *testing.T) {
+	base := accOIDCBase(accName(), accName())
+	name := accName()
+	provider := func(domainID string) string {
+		return fmt.Sprintf(`
+resource "definednet_endpoint_oidc_provider" "p" {
+  name          = %q
+  client_id     = "tf-acc-client"
+  client_secret = "secret"
+  issuer_url    = %q
+  network_id    = definednet_network.n.id
+  %s
+}
+`, name, accIssuer, domainID)
+	}
+	runAccTest(t, []testStep{
+		{
+			config: base + fmt.Sprintf(`
+resource "definednet_domain" "d" {
+  domain_name = %q
+}
+
+resource "definednet_domain_verification" "d" {
+  domain_id = definednet_domain.d.id
+  lifecycle { create_before_destroy = true }
+}
+`, accDomain()) + provider("domain_id = definednet_domain_verification.d.domain_id"),
+			checks: []resource.TestCheckFunc{
+				resource.TestCheckResourceAttrPair("definednet_endpoint_oidc_provider.p", "domain_id", "definednet_domain.d", "id"),
+			},
+		},
+		{
+			config: base + provider(""),
+			checks: []resource.TestCheckFunc{
+				resource.TestCheckNoResourceAttr("definednet_endpoint_oidc_provider.p", "domain_id"),
+			},
+		},
+	})
+}

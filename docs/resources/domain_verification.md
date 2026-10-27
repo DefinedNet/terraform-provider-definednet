@@ -3,12 +3,12 @@
 page_title: "definednet_domain_verification Resource - definednet"
 subcategory: ""
 description: |-
-  Verifies ownership of a definednet_domain. Create asks the API to look up the domain's TXT record and keeps retrying until it is found or the create timeout passes, so the record can be published by a DNS resource in the same configuration (use depends_on). Reference domain_id from this resource, not from the domain, in resources that need a verified domain so they are ordered after verification. The API has no un-verify, so destroying this resource only forgets it.
+  Verifies ownership of a definednet_domain. Create asks the API to look up the domain's TXT record and keeps retrying until it is found or the create timeout passes, so the record can be published by a DNS resource in the same configuration (use depends_on). Reference domain_id from this resource, not from the domain, in resources that need a verified domain so they are ordered after verification. The API has no un-verify, so destroying this resource only forgets it. Set lifecycle { create_before_destroy = true } so that removing the domain and its last reference in one apply updates the referencing resource first; otherwise Terraform deletes the domain first and the API refuses with ERR_HAS_DEPENDENTS. The setting must be applied before the apply that removes the domain.
 ---
 
 # definednet_domain_verification (Resource)
 
-Verifies ownership of a `definednet_domain`. Create asks the API to look up the domain's TXT record and keeps retrying until it is found or the create timeout passes, so the record can be published by a DNS resource in the same configuration (use `depends_on`). Reference `domain_id` from this resource, not from the domain, in resources that need a verified domain so they are ordered after verification. The API has no un-verify, so destroying this resource only forgets it.
+Verifies ownership of a `definednet_domain`. Create asks the API to look up the domain's TXT record and keeps retrying until it is found or the create timeout passes, so the record can be published by a DNS resource in the same configuration (use `depends_on`). Reference `domain_id` from this resource, not from the domain, in resources that need a verified domain so they are ordered after verification. The API has no un-verify, so destroying this resource only forgets it. Set `lifecycle { create_before_destroy = true }` so that removing the domain and its last reference in one apply updates the referencing resource first; otherwise Terraform deletes the domain first and the API refuses with `ERR_HAS_DEPENDENTS`. The setting must be applied before the apply that removes the domain.
 
 ## Example Usage
 
@@ -21,6 +21,12 @@ resource "definednet_domain_verification" "corp" {
 
   timeouts {
     create = "15m"
+  }
+
+  # Lets one apply detach the domain from the provider below and delete it:
+  # the provider is updated before the domain is destroyed.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
