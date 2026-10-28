@@ -166,8 +166,7 @@ type routeFirewallRuleModel struct {
 }
 
 // expandFirewallRules converts a Terraform set into API rules. The result is
-// never nil: every endpoint needs an explicit array to replace rules, and the
-// tag PUT leaves rules untouched when the field is null.
+// never nil: every endpoint needs an explicit array to replace rules.
 func expandFirewallRules(ctx context.Context, set types.Set, withLocalCIDR bool) ([]client.FirewallRule, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	out := []client.FirewallRule{}

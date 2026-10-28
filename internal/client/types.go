@@ -76,8 +76,9 @@ type TagCreateRequest struct {
 	FirewallRules      []FirewallRule   `json:"firewallRules"`
 }
 
-// TagUpdateRequest is the body of PUT /v1/tags/{name}. FirewallRules must be
-// non-nil: the API leaves rules untouched when the field is null.
+// TagUpdateRequest is the body of PATCH /v1/tags/{name}. PATCH leaves absent
+// fields untouched, so every managed field is always sent; null clears, same as
+// an empty value. Before and After are move commands, omitted to stay in place.
 type TagUpdateRequest struct {
 	Description        string           `json:"description"`
 	Before             *string          `json:"before,omitempty"`

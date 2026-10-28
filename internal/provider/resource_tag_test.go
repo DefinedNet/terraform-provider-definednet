@@ -182,13 +182,13 @@ resource "definednet_tag" "prod" {
 }
 `, description)
 	}
-	lastPut := func(check func(client.TagUpdateRequest) error) resource.TestCheckFunc {
+	lastPatch := func(check func(client.TagUpdateRequest) error) resource.TestCheckFunc {
 		return func(*terraform.State) error {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			req, ok := f.tagUpdates["env:prod"]
 			if !ok {
-				return fmt.Errorf("no PUT recorded for env:prod")
+				return fmt.Errorf("no PATCH recorded for env:prod")
 			}
 			return check(req)
 		}
@@ -199,7 +199,7 @@ resource "definednet_tag" "prod" {
 		{
 			config: cfg("two"),
 			checks: []resource.TestCheckFunc{
-				lastPut(func(req client.TagUpdateRequest) error {
+				lastPatch(func(req client.TagUpdateRequest) error {
 					if req.Before != nil || req.After != nil {
 						return fmt.Errorf("unchanged position was re-sent: before=%v after=%v", req.Before, req.After)
 					}
