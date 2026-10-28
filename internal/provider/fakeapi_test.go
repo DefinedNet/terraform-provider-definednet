@@ -47,7 +47,7 @@ type fakeAPI struct {
 	domainVerifyFailCode   string
 	domainVerifyFailStatus int
 
-	// tagUpdates holds the last PUT body received for each tag.
+	// tagUpdates holds the last PATCH body received for each tag.
 	tagUpdates map[string]client.TagUpdateRequest
 	// networkOverrides and networkOverridePuts hold each network's config
 	// overrides and how many times they were PUT.
@@ -357,19 +357,35 @@ func (f *fakeAPI) handleTags(w http.ResponseWriter, r *http.Request, rest []stri
 		switch r.Method {
 		case http.MethodGet:
 			writeData(w, tag)
-		case http.MethodPut:
+		case http.MethodPatch:
+			var raw json.RawMessage
 			var req client.TagUpdateRequest
-			if err := decode(r, &req); err != nil {
+			var present map[string]json.RawMessage
+			err := decode(r, &raw)
+			if err == nil {
+				err = json.Unmarshal(raw, &req)
+			}
+			if err == nil {
+				err = json.Unmarshal(raw, &present)
+			}
+			if err != nil {
 				writeErr(w, 400, "ERR_BAD_REQUEST", err.Error(), "")
 				return
 			}
 			f.tagUpdates[tag.Name] = req
-			rules := req.FirewallRules
-			if rules == nil {
-				// The real API leaves rules untouched on a null firewallRules.
-				rules = tag.FirewallRules
+			// Absent fields are untouched; a present one (null included) replaces.
+			if _, ok := present["description"]; ok {
+				tag.Description = req.Description
 			}
-			f.applyTag(tag, req.Description, req.ConfigOverrides, req.RouteSubscriptions, rules)
+			if _, ok := present["configOverrides"]; ok {
+				tag.ConfigOverrides = storeOverrides(req.ConfigOverrides)
+			}
+			if _, ok := present["routeSubscriptions"]; ok {
+				tag.RouteSubscriptions = nonNilStrings(req.RouteSubscriptions)
+			}
+			if _, ok := present["firewallRules"]; ok {
+				tag.FirewallRules = normalizeRules(req.FirewallRules)
+			}
 			if err := f.placeTag(tag, req.Before, req.After); err != nil {
 				writeErr(w, 400, "ERR_INVALID_REFERENCE", err.Error(), "before")
 				return

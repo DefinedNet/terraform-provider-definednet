@@ -65,7 +65,7 @@ func (c *Client) GetTag(ctx context.Context, name string) (*Tag, error) {
 
 func (c *Client) UpdateTag(ctx context.Context, name string, req TagUpdateRequest) (*Tag, error) {
 	var out Tag
-	if _, err := c.do(ctx, http.MethodPut, "/v1/tags/"+pathSegment(name), nil, req, &out); err != nil {
+	if _, err := c.do(ctx, http.MethodPatch, "/v1/tags/"+pathSegment(name), nil, req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
