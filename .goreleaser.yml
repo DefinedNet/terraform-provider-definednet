@@ -1,0 +1,58 @@
+# Produces the asset set the Terraform Registry requires: one zip per
+# platform, a SHA256SUMS file with a detached GPG signature, and a copy of
+# terraform-registry-manifest.json. See
+# https://developer.hashicorp.com/terraform/registry/providers/publishing
+version: 2
+project_name: terraform-provider-definednet
+builds:
+  - env:
+      # CGO would make the binary unusable on HCP Terraform runners
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - '-s -w -X main.version={{.Version}}'
+    goos:
+      - freebsd
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - '386'
+      - arm
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: windows
+        goarch: arm
+    binary: '{{ .ProjectName }}_v{{ .Version }}'
+archives:
+  - formats:
+      - zip
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+checksum:
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+# The private key is in KMS, so the signature comes from scripts/kms-sign.py
+# rather than gpg
+signs:
+  - artifacts: checksum
+    cmd: python3
+    args:
+      - "scripts/kms-sign.py"
+      - "${artifact}"
+      - "${signature}"
+release:
+  extra_files:
+    - glob: 'terraform-registry-manifest.json'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  # A tag like v1.2.3-rc1 becomes a GitHub pre-release
+  prerelease: auto
+changelog:
+  disable: true
