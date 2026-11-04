@@ -10,8 +10,7 @@ in `docs/`.
 Published to the
 [Terraform Registry](https://registry.terraform.io/providers/definednet/definednet)
 and the
-[OpenTofu Registry](https://search.opentofu.org/provider/definednet/definednet);
-the same `source` address works with both `terraform` and `tofu`.
+[OpenTofu Registry](https://search.opentofu.org/provider/definednet/definednet).
 
 ## Resources and data sources
 
