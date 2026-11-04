@@ -7,6 +7,12 @@ networks, roles, tags, and routes through the
 Built on terraform-plugin-framework (protocol 6). Generated reference docs live
 in `docs/`.
 
+Published to the
+[Terraform Registry](https://registry.terraform.io/providers/definednet/definednet)
+and the
+[OpenTofu Registry](https://search.opentofu.org/provider/definednet/definednet);
+the same `source` address works with both `terraform` and `tofu`.
+
 ## Resources and data sources
 
 | Type | Notes |
@@ -129,7 +135,11 @@ Push a tag like `v0.1.0`. The release workflow builds every platform with
 goreleaser, signs the checksums, and publishes a GitHub release. The Terraform
 Registry ingests the release through its webhook and verifies the signature
 against the public key registered under the `definednet` namespace, so the key
-must be registered before the first tag.
+must be registered before the first tag. The OpenTofu Registry checks this
+repository for new release tags every 15 minutes and adds them on its own;
+`tofu init` then verifies the signature against the same public key, stored in
+[opentofu/registry](https://github.com/opentofu/registry) under
+`keys/d/definednet/`.
 
 The signing key is an AWS KMS key and never leaves KMS. The workflow assumes a
 role trusted only for `v*` tags of this repository, and goreleaser runs
