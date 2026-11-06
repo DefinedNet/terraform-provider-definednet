@@ -191,3 +191,21 @@ func TestAPIErrorNamesOverrideKey(t *testing.T) {
 		t.Fatalf("got %v, want %q", err, want)
 	}
 }
+
+func TestAPIErrorOnlyEchoesOverrideKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"ERR_INVALID_VALUE","message":"bad","path":"description"}]}`))
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.UpdateTag(context.Background(), "t", TagUpdateRequest{Description: "secret"})
+	want := `api error: HTTP 400: ERR_INVALID_VALUE: bad (description)`
+	if err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+}

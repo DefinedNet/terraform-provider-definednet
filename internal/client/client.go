@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -70,8 +71,8 @@ type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Path    string `json:"path,omitempty"`
-	// Key is the request's string at Path when Path names a key field, so the
-	// error says which config override it is about instead of only its index.
+	// Key is the config override key at Path when Path names one, so the error
+	// says which override it is about instead of only its index.
 	Key string `json:"-"`
 }
 
@@ -225,11 +226,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		if json.Unmarshal(respBody, &errEnv) == nil {
 			apiErr.Errors = errEnv.Errors
 			for i, d := range apiErr.Errors {
-				// Only key fields: values can be secrets, such as an OIDC
-				// client secret.
-				if d.Path == "key" || strings.HasSuffix(d.Path, ".key") {
-					apiErr.Errors[i].Key = payloadString(payload, d.Path)
-				}
+				apiErr.Errors[i].Key = overrideKeyAt(payload, d.Path)
 			}
 		}
 		lastErr = apiErr
@@ -250,35 +247,28 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	return nil, lastErr
 }
 
-// payloadString returns the string at an API error path such as
-// configOverrides[1].key in a JSON request body, or "" if there is none.
-func payloadString(payload []byte, path string) string {
-	var v any
-	if json.Unmarshal(payload, &v) != nil {
+// overrideKeyPath matches the error path of a config override key in a tag
+// (configOverrides) or network (overrides) request body. Other fields are
+// never echoed, since they can be secrets.
+var overrideKeyPath = regexp.MustCompile(`^(configOverrides|overrides)\[(\d+)\]\.key$`)
+
+// overrideKeyAt returns the config override key the error path points at in
+// the request body, or "" if the path is not an override key.
+func overrideKeyAt(payload []byte, path string) string {
+	m := overrideKeyPath.FindStringSubmatch(path)
+	if m == nil {
 		return ""
 	}
-	for _, seg := range strings.Split(path, ".") {
-		name, rest, _ := strings.Cut(seg, "[")
-		if name != "" {
-			m, ok := v.(map[string]any)
-			if !ok {
-				return ""
-			}
-			v = m[name]
-		}
-		for rest != "" {
-			idx, after, _ := strings.Cut(rest, "]")
-			i, err := strconv.Atoi(idx)
-			a, ok := v.([]any)
-			if err != nil || !ok || i < 0 || i >= len(a) {
-				return ""
-			}
-			v = a[i]
-			rest = strings.TrimPrefix(after, "[")
-		}
+	var body map[string]json.RawMessage
+	var overrides []ConfigOverride
+	if json.Unmarshal(payload, &body) != nil || json.Unmarshal(body[m[1]], &overrides) != nil {
+		return ""
 	}
-	s, _ := v.(string)
-	return s
+	i, _ := strconv.Atoi(m[2])
+	if i >= len(overrides) {
+		return ""
+	}
+	return overrides[i].Key
 }
 
 // permanentTransportError reports a failure no retry can fix. Like
