@@ -127,6 +127,10 @@ func testAccCheckDestroyed(s *terraform.State) error {
 			_, err = c.GetDomain(ctx, id)
 		case "definednet_endpoint_oidc_provider":
 			_, err = c.GetEndpointOIDCProvider(ctx, id)
+		case "definednet_join_key":
+			_, err = c.GetJoinKey(ctx, id)
+		case "definednet_host":
+			_, err = c.GetHost(ctx, id)
 		default:
 			continue
 		}
@@ -187,7 +191,28 @@ func sweepTargets(ctx context.Context, c *client.Client) ([]sweepTarget, error) 
 	ours := func(name string) bool { return strings.HasPrefix(name, accPrefix) }
 	var out []sweepTarget
 
-	// OIDC providers go first: they hold the network, role and domain.
+	// Hosts and join keys hold their network and role, so they go first.
+	hosts, err := c.ListHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range hosts {
+		if ours(h.Name) {
+			out = append(out, sweepTarget{"host", h.ID, c.DeleteHost})
+		}
+	}
+	// An organization without join keys enabled answers 404, which means there
+	// is nothing to sweep.
+	joinKeys, err := c.ListJoinKeys(ctx)
+	if err != nil && !client.IsNotFound(err) {
+		return nil, err
+	}
+	for _, k := range joinKeys {
+		if ours(k.Name) {
+			out = append(out, sweepTarget{"join key", k.ID, c.DeleteJoinKey})
+		}
+	}
+	// OIDC providers go early: they hold the network, role and domain.
 	providers, err := c.ListEndpointOIDCProviders(ctx)
 	if err != nil {
 		return nil, err

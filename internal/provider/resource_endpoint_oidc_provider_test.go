@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 
 	"github.com/DefinedNet/terraform-provider-definednet/internal/client"
 )
@@ -194,6 +196,59 @@ resource "definednet_endpoint_oidc_provider" "p" {
 			config:     cfg,
 			planChecks: expectUpdate("definednet_endpoint_oidc_provider.p"),
 			checks:     []resource.TestCheckFunc{expectAutoAssign(f, "10.10.0.0/16", "fd00:1234:5678:1::/80")},
+		},
+	})
+}
+
+func TestEndpointOIDCProviderResource_CertV1EmptyAutoAssign(t *testing.T) {
+	f := newFakeAPI()
+	defer f.Close()
+	v1 := f.addCertV1Network("10.20.0.0/16")
+
+	cfg := func(network, extra string) string {
+		return fmt.Sprintf(`
+resource "definednet_network" "n" {
+  name      = "n"
+  ipv4_cidr = "10.10.0.0/16"
+}
+
+resource "definednet_endpoint_oidc_provider" "p" {
+  name          = "p"
+  client_id     = "c"
+  client_secret = "s"
+  issuer_url    = "https://idp.example.com"
+  network_id    = %s
+  %s
+}`, network, extra)
+	}
+	runUnitTest(t, f, []testStep{
+		{
+			config:      cfg(fmt.Sprintf("%q", v1), "auto_assign_cidrs = []"),
+			expectError: `Empty auto_assign_cidrs on a certificate version 1 network(?s:.*)auto_assign_cidrs = \[\]`,
+		},
+		{
+			config: cfg(fmt.Sprintf("%q", v1), ""),
+			checks: []resource.TestCheckFunc{
+				resource.TestCheckResourceAttr("definednet_endpoint_oidc_provider.p", "auto_assign_cidrs.#", "1"),
+				resource.TestCheckTypeSetElemAttr("definednet_endpoint_oidc_provider.p", "auto_assign_cidrs.*", "10.20.0.0/16"),
+			},
+		},
+		{
+			config:      cfg(fmt.Sprintf("%q", v1), "auto_assign_cidrs = []"),
+			expectError: "Empty auto_assign_cidrs on a certificate version 1 network",
+		},
+		{
+			// network_id is unknown at plan time, so the check runs in the apply-time re-plan.
+			config: cfg("definednet_network.m.id", "auto_assign_cidrs = []") + `
+resource "definednet_network" "m" {
+  name      = "m"
+  ipv4_cidr = "10.11.0.0/16"
+}`,
+			planChecks: []plancheck.PlanCheck{plancheck.ExpectUnknownValue("definednet_endpoint_oidc_provider.p", tfjsonpath.New("network_id"))},
+			checks: []resource.TestCheckFunc{
+				resource.TestCheckResourceAttr("definednet_endpoint_oidc_provider.p", "auto_assign_cidrs.#", "0"),
+				expectAutoAssign(f, "fd00:1234:5678:1::/80"),
+			},
 		},
 	})
 }

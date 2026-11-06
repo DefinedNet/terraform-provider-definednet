@@ -210,3 +210,120 @@ type EndpointOIDCProviderRequest struct {
 	DomainID          *string  `json:"domainID"`
 	AutoAssignCIDRs   []string `json:"autoAssignCIDRs"`
 }
+
+// JoinKey is the API representation of a join key: a reusable credential that
+// creates a host with the key's shape on every enrollment. The shape
+// (network, role, tags, prefixes) cannot change after creation.
+// AutoAssignCIDRs is what the server stored, which includes the network's
+// IPv6 prefix and, on certificate version 1 networks, its IPv4 prefix.
+type JoinKey struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	NetworkID       string     `json:"networkID"`
+	RoleID          *string    `json:"roleID"`
+	Tags            []string   `json:"tags"`
+	AutoAssignCIDRs []string   `json:"autoAssignCIDRs"`
+	ExpiresAt       *time.Time `json:"expiresAt"`
+}
+
+// JoinKeyCreateResponse is the response of POST /v1/join-keys, the only one
+// that carries the token.
+type JoinKeyCreateResponse struct {
+	JoinKey
+	Token string `json:"token"`
+}
+
+// JoinKeyCreateRequest is the body of POST /v1/join-keys. A nil
+// AutoAssignCIDRs lets the API choose the network's default.
+type JoinKeyCreateRequest struct {
+	Name            string     `json:"name"`
+	NetworkID       string     `json:"networkID"`
+	RoleID          *string    `json:"roleID"`
+	Tags            []string   `json:"tags"`
+	AutoAssignCIDRs []string   `json:"autoAssignCIDRs"`
+	ExpiresAt       *time.Time `json:"expiresAt"`
+}
+
+// JoinKeyPatchRequest is the body of PATCH /v1/join-keys/{id}. A nil field is
+// omitted, which leaves it unchanged; ExpiresAt pointing at a nil time sends
+// null, which removes the expiry.
+type JoinKeyPatchRequest struct {
+	Name      *string     `json:"name,omitempty"`
+	ExpiresAt **time.Time `json:"expiresAt,omitempty"`
+}
+
+// Host is the v2 API representation of a host. IPAddresses holds at most one
+// address per family, IPv4 first.
+type Host struct {
+	ID              string           `json:"id"`
+	NetworkID       string           `json:"networkID"`
+	RoleID          *string          `json:"roleID"`
+	Name            string           `json:"name"`
+	IPAddresses     []string         `json:"ipAddresses"`
+	StaticAddresses []string         `json:"staticAddresses"`
+	ListenPort      int64            `json:"listenPort"`
+	IsLighthouse    bool             `json:"isLighthouse"`
+	IsRelay         bool             `json:"isRelay"`
+	IsBlocked       bool             `json:"isBlocked"`
+	Tags            []string         `json:"tags"`
+	ConfigOverrides []ConfigOverride `json:"configOverrides"`
+}
+
+// HostCreateRequest is the body of POST /v2/hosts. IPAddresses takes an
+// explicit address or the network's own prefix per family; a prefix asks the
+// API to assign the next free address from it. IPv6 is assigned either way.
+type HostCreateRequest struct {
+	NetworkID       string           `json:"networkID"`
+	RoleID          *string          `json:"roleID"`
+	Name            string           `json:"name"`
+	IPAddresses     []string         `json:"ipAddresses"`
+	StaticAddresses []string         `json:"staticAddresses"`
+	ListenPort      int64            `json:"listenPort"`
+	IsLighthouse    bool             `json:"isLighthouse"`
+	IsRelay         bool             `json:"isRelay"`
+	Tags            []string         `json:"tags"`
+	ConfigOverrides []ConfigOverride `json:"configOverrides"`
+}
+
+// HostUpdateRequest is the body of PUT /v3/hosts/{id}, a full replacement of
+// the fields a host can change after creation.
+type HostUpdateRequest struct {
+	Name            string           `json:"name"`
+	RoleID          *string          `json:"roleID"`
+	StaticAddresses []string         `json:"staticAddresses"`
+	ListenPort      int64            `json:"listenPort"`
+	Tags            []string         `json:"tags"`
+	ConfigOverrides []ConfigOverride `json:"configOverrides"`
+}
+
+// HostAddIPRequest is the body of POST /v2/hosts/{id}/ip-addresses: an IPv4
+// address, or the network's IPv4 prefix to assign the next free address.
+type HostAddIPRequest struct {
+	IPAddress string `json:"ipAddress"`
+}
+
+// HostAndEnrollmentCodeCreateRequest is the body of POST /v2/host-and-enrollment-code.
+// A nil CodeLifetimeSeconds takes the API default of one day.
+type HostAndEnrollmentCodeCreateRequest struct {
+	HostCreateRequest
+	CodeLifetimeSeconds *int64 `json:"codeLifetimeSeconds"`
+}
+
+// HostAndEnrollmentCode is the response of POST /v2/host-and-enrollment-code.
+type HostAndEnrollmentCode struct {
+	Host           Host           `json:"host"`
+	EnrollmentCode EnrollmentCode `json:"enrollmentCode"`
+}
+
+// EnrollmentCodeRequest is the body of POST /v1/hosts/{id}/enrollment-code.
+// A nil LifetimeSeconds takes the API default of one day.
+type EnrollmentCodeRequest struct {
+	LifetimeSeconds *int64 `json:"lifetimeSeconds"`
+}
+
+// EnrollmentCode is a single-use code that binds the first key pair to redeem
+// it to an existing host.
+type EnrollmentCode struct {
+	Code            string `json:"code"`
+	LifetimeSeconds int64  `json:"lifetimeSeconds"`
+}

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -164,5 +165,29 @@ func TestNoRetryOnTLSError(t *testing.T) {
 	}
 	if tr.calls != 1 {
 		t.Fatalf("GET was sent %d times, want 1", tr.calls)
+	}
+}
+
+// The PATCH body must tell "leave unchanged" (omitted) from "remove" (null).
+func TestJoinKeyPatchRequestJSON(t *testing.T) {
+	name := "k"
+	at := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	var none *time.Time
+	for _, tc := range []struct {
+		req  JoinKeyPatchRequest
+		want string
+	}{
+		{JoinKeyPatchRequest{}, `{}`},
+		{JoinKeyPatchRequest{Name: &name}, `{"name":"k"}`},
+		{JoinKeyPatchRequest{ExpiresAt: &none}, `{"expiresAt":null}`},
+		{JoinKeyPatchRequest{ExpiresAt: func() **time.Time { p := &at; return &p }()}, `{"expiresAt":"2030-01-02T03:04:05Z"}`},
+	} {
+		got, err := json.Marshal(tc.req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != tc.want {
+			t.Errorf("got %s, want %s", got, tc.want)
+		}
 	}
 }

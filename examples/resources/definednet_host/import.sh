@@ -1,0 +1,1 @@
+terraform import definednet_host.lighthouse host-24NVITAMHMJ6WU2OXDL63L4JCI
