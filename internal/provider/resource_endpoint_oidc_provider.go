@@ -27,6 +27,7 @@ var (
 	_ resource.ResourceWithConfigure      = (*endpointOIDCProviderResource)(nil)
 	_ resource.ResourceWithImportState    = (*endpointOIDCProviderResource)(nil)
 	_ resource.ResourceWithValidateConfig = (*endpointOIDCProviderResource)(nil)
+	_ resource.ResourceWithModifyPlan     = (*endpointOIDCProviderResource)(nil)
 )
 
 func newEndpointOIDCProviderResource() resource.Resource { return &endpointOIDCProviderResource{} }
@@ -141,7 +142,8 @@ func (r *endpointOIDCProviderResource) Schema(_ context.Context, _ resource.Sche
 				MarkdownDescription: "IPv4 prefix hosts enrolling through this provider draw addresses from: either empty or the network's own " +
 					"`ipv4_cidr`, which the API rejects any other prefix for. IPv6 is always assigned and is not listed here; the full stored " +
 					"list is the network's `cidrs`. Omit to accept the server's value (and the new network's default when `network_id` changes), " +
-					"set `[]` to assign IPv6 only. On a certificate version 1 network the API always assigns IPv4, so `[]` there shows a diff on every plan.",
+					"set `[]` to assign IPv6 only. A certificate version 1 network always assigns IPv4, so the API rejects `[]` there and the provider rejects it at plan time; " +
+					"setting `[]` needs the `networks:read` scope, because the provider reads the network to check its certificate version.",
 				Optional:      true,
 				Computed:      true,
 				ElementType:   types.StringType,
@@ -178,6 +180,46 @@ func (keepAutoAssignForSameNetwork) PlanModifySet(ctx context.Context, req planm
 		return
 	}
 	resp.PlanValue = req.StateValue
+}
+
+// rejectEmptyAutoAssignOnCertV1 fails the plan for a configured empty
+// auto_assign_cidrs on a certificate version 1 network. The API rejects it
+// too, but only at apply; for a join key that is after the replace has already
+// deleted the old key and its token. Only an explicit empty set costs a
+// network read.
+func rejectEmptyAutoAssignOnCertV1(ctx context.Context, c *client.Client, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// Configure runs before ModifyPlan; the nil check only guards the dereference.
+	if req.Plan.Raw.IsNull() || c == nil {
+		return
+	}
+	// No apply follows an unchanged plan, so a failed read must not block it
+	// (terraform destroy runs one before the destroy plan).
+	if !req.State.Raw.IsNull() && req.Plan.Raw.Equal(req.State.Raw) {
+		return
+	}
+	var cidrs types.Set
+	var networkID types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("auto_assign_cidrs"), &cidrs)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("network_id"), &networkID)...)
+	if resp.Diagnostics.HasError() || cidrs.IsNull() || cidrs.IsUnknown() || len(cidrs.Elements()) > 0 ||
+		networkID.IsNull() || networkID.IsUnknown() {
+		return
+	}
+	id := networkID.ValueString()
+	n, err := c.GetNetwork(ctx, id)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to read network",
+			fmt.Sprintf("network %q: reading its certificate version to check auto_assign_cidrs: %s", id, describeError(err)))
+		return
+	}
+	if n.CertVersion == 1 {
+		resp.Diagnostics.AddAttributeError(path.Root("auto_assign_cidrs"), "Empty auto_assign_cidrs on a certificate version 1 network",
+			fmt.Sprintf("Network %q uses certificate version 1, which assigns IPv4 to every host; omit auto_assign_cidrs or set it to the network's ipv4_cidr.", id))
+	}
+}
+
+func (r *endpointOIDCProviderResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	rejectEmptyAutoAssignOnCertV1(ctx, r.client, req, resp)
 }
 
 // ValidateConfig mirrors the API's Bind rule so a missing domain fails at plan time.
@@ -324,13 +366,7 @@ func (r *endpointOIDCProviderResource) expand(ctx context.Context, plan endpoint
 // forced by the API, so keeping it out of state leaves one owner for the value
 // that is actually a choice, and drift and import both show the real opt-in.
 func (r *endpointOIDCProviderResource) setState(ctx context.Context, p *client.EndpointOIDCProvider, prior endpointOIDCProviderModel, state stateSetter) diag.Diagnostics {
-	v4 := []string{}
-	for _, c := range p.AutoAssignCIDRs {
-		if !strings.Contains(c, ":") {
-			v4 = append(v4, c)
-		}
-	}
-	cidrs, diags := types.SetValueFrom(ctx, types.StringType, v4)
+	cidrs, diags := types.SetValueFrom(ctx, types.StringType, ipv4Only(p.AutoAssignCIDRs))
 	m := endpointOIDCProviderModel{
 		ID:                    types.StringValue(p.ID),
 		Name:                  types.StringValue(p.Name),
@@ -348,4 +384,16 @@ func (r *endpointOIDCProviderResource) setState(ctx context.Context, p *client.E
 	}
 	diags.Append(state.Set(ctx, &m)...)
 	return diags
+}
+
+// ipv4Only returns the IPv4 entries of an API auto-assign list, which is the
+// part a user chooses; the API adds the IPv6 prefix on its own.
+func ipv4Only(cidrs []string) []string {
+	v4 := []string{}
+	for _, c := range cidrs {
+		if !strings.Contains(c, ":") {
+			v4 = append(v4, c)
+		}
+	}
+	return v4
 }

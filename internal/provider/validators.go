@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -192,5 +194,51 @@ func (v domainNameValidator) ValidateString(ctx context.Context, req validator.S
 		!strings.HasPrefix(s, ".") && !strings.HasSuffix(s, ".") && strings.Contains(s, ".")
 	if !ok {
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid domain name", v.Description(ctx))
+	}
+}
+
+// utcTimestampRegexp pins the one spelling the API returns: it stores whole
+// seconds and always answers in UTC, so state and config compare as text.
+var utcTimestampRegexp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
+
+type utcTimestampValidator struct{}
+
+func (utcTimestampValidator) Description(_ context.Context) string {
+	return "must be a UTC RFC 3339 timestamp with whole seconds, such as 2027-01-01T00:00:00Z"
+}
+
+func (v utcTimestampValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v utcTimestampValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	s := req.ConfigValue.ValueString()
+	if _, err := time.Parse(time.RFC3339, s); err != nil || !utcTimestampRegexp.MatchString(s) {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid timestamp", fmt.Sprintf("%q %s.", s, v.Description(ctx)))
+	}
+}
+
+// ipv4AddressValidator accepts an IPv4 address in the form the API returns
+// it, so the configured text and the refreshed state always match.
+type ipv4AddressValidator struct{}
+
+func (ipv4AddressValidator) Description(_ context.Context) string {
+	return "must be an IPv4 address such as 10.0.0.5, without a prefix length or leading zeros"
+}
+
+func (v ipv4AddressValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v ipv4AddressValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	s := req.ConfigValue.ValueString()
+	if a, err := netip.ParseAddr(s); err != nil || !a.Is4() || a.String() != s {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid IPv4 address", fmt.Sprintf("%q %s.", s, v.Description(ctx)))
 	}
 }
