@@ -166,3 +166,46 @@ func TestNoRetryOnTLSError(t *testing.T) {
 		t.Fatalf("GET was sent %d times, want 1", tr.calls)
 	}
 }
+
+func TestAPIErrorNamesOverrideKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"errors":[` +
+			`{"code":"ERR_INVALID_VALUE","message":"must be an allowed override option","path":"configOverrides[1].key"},` +
+			`{"code":"ERR_INVALID_VALUE","message":"bad","path":"configOverrides[0].value"},` +
+			`{"code":"ERR_INVALID_VALUE","message":"bad","path":"configOverrides[9].key"}]}`))
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.UpdateTag(context.Background(), "t", TagUpdateRequest{ConfigOverrides: []ConfigOverride{
+		{Key: "logging.level", Value: []byte(`"secret"`)},
+		{Key: "dns.resolver_addrs", Value: []byte(`[]`)},
+	}})
+	want := `api error: HTTP 400: ERR_INVALID_VALUE: must be an allowed override option (configOverrides[1].key "dns.resolver_addrs"); ` +
+		`ERR_INVALID_VALUE: bad (configOverrides[0].value); ERR_INVALID_VALUE: bad (configOverrides[9].key)`
+	if err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+}
+
+func TestAPIErrorOnlyEchoesOverrideKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"ERR_INVALID_VALUE","message":"bad","path":"description"}]}`))
+	}))
+	defer srv.Close()
+
+	c, err := New(srv.URL, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.UpdateTag(context.Background(), "t", TagUpdateRequest{Description: "secret"})
+	want := `api error: HTTP 400: ERR_INVALID_VALUE: bad (description)`
+	if err == nil || err.Error() != want {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+}
