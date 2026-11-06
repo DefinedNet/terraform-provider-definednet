@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,6 +70,9 @@ type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Path    string `json:"path,omitempty"`
+	// Key is the request's string at Path when Path names a key field, so the
+	// error says which config override it is about instead of only its index.
+	Key string `json:"-"`
 }
 
 // APIError is returned for any non-2xx response.
@@ -95,7 +99,11 @@ func (e *APIError) Error() string {
 				p += ": " + d.Message
 			}
 			if d.Path != "" {
-				p += " (" + d.Path + ")"
+				if d.Key != "" {
+					p += fmt.Sprintf(" (%s %q)", d.Path, d.Key)
+				} else {
+					p += " (" + d.Path + ")"
+				}
 			}
 			parts = append(parts, p)
 		}
@@ -216,6 +224,13 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 		if json.Unmarshal(respBody, &errEnv) == nil {
 			apiErr.Errors = errEnv.Errors
+			for i, d := range apiErr.Errors {
+				// Only key fields: values can be secrets, such as an OIDC
+				// client secret.
+				if d.Path == "key" || strings.HasSuffix(d.Path, ".key") {
+					apiErr.Errors[i].Key = payloadString(payload, d.Path)
+				}
+			}
 		}
 		lastErr = apiErr
 
@@ -233,6 +248,37 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 	}
 	return nil, lastErr
+}
+
+// payloadString returns the string at an API error path such as
+// configOverrides[1].key in a JSON request body, or "" if there is none.
+func payloadString(payload []byte, path string) string {
+	var v any
+	if json.Unmarshal(payload, &v) != nil {
+		return ""
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, rest, _ := strings.Cut(seg, "[")
+		if name != "" {
+			m, ok := v.(map[string]any)
+			if !ok {
+				return ""
+			}
+			v = m[name]
+		}
+		for rest != "" {
+			idx, after, _ := strings.Cut(rest, "]")
+			i, err := strconv.Atoi(idx)
+			a, ok := v.([]any)
+			if err != nil || !ok || i < 0 || i >= len(a) {
+				return ""
+			}
+			v = a[i]
+			rest = strings.TrimPrefix(after, "[")
+		}
+	}
+	s, _ := v.(string)
+	return s
 }
 
 // permanentTransportError reports a failure no retry can fix. Like
