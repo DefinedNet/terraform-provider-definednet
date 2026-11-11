@@ -1,7 +1,7 @@
 name: Acceptance
 on:
   schedule:
-    - cron: '17 7 * * *'
+    - cron: '17 19 * * *'
   workflow_dispatch:
 
 # Every run shares one test organization, and the sweeper deletes anything
