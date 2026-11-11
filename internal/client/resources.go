@@ -283,3 +283,106 @@ func (c *Client) DeleteEndpointOIDCProvider(ctx context.Context, id string) erro
 	_, err := c.do(ctx, http.MethodDelete, "/v1/endpoint-oidc-providers/"+pathSegment(id), nil, nil, nil)
 	return err
 }
+
+// Join keys
+
+func (c *Client) CreateJoinKey(ctx context.Context, req JoinKeyCreateRequest) (*JoinKeyCreateResponse, error) {
+	var out JoinKeyCreateResponse
+	if _, err := c.do(ctx, http.MethodPost, "/v1/join-keys", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetJoinKey(ctx context.Context, id string) (*JoinKey, error) {
+	var out JoinKey
+	if _, err := c.do(ctx, http.MethodGet, "/v1/join-keys/"+pathSegment(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) UpdateJoinKey(ctx context.Context, id string, req JoinKeyPatchRequest) (*JoinKey, error) {
+	var out JoinKey
+	if _, err := c.do(ctx, http.MethodPatch, "/v1/join-keys/"+pathSegment(id), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteJoinKey(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/v1/join-keys/"+pathSegment(id), nil, nil, nil)
+	return err
+}
+
+func (c *Client) ListJoinKeys(ctx context.Context) ([]JoinKey, error) {
+	return listAll[JoinKey](ctx, c, "/v1/join-keys")
+}
+
+// Hosts. The v1 host routes reject hosts on certificate version 2 networks,
+// so reads and updates use the v2 and v3 routes; only DELETE has no newer
+// version.
+
+func (c *Client) CreateHost(ctx context.Context, req HostCreateRequest) (*Host, error) {
+	var out Host
+	if _, err := c.do(ctx, http.MethodPost, "/v2/hosts", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateHostAndEnrollmentCode creates a host and mints its first enrollment
+// code in one request; a failed mint creates no host.
+func (c *Client) CreateHostAndEnrollmentCode(ctx context.Context, req HostAndEnrollmentCodeCreateRequest) (*HostAndEnrollmentCode, error) {
+	var out HostAndEnrollmentCode
+	if _, err := c.do(ctx, http.MethodPost, "/v2/host-and-enrollment-code", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateEnrollmentCode mints a new code for a host. Earlier codes stay valid
+// until they are redeemed or expire.
+func (c *Client) CreateEnrollmentCode(ctx context.Context, hostID string, lifetimeSeconds *int64) (*EnrollmentCode, error) {
+	var out EnrollmentCode
+	req := EnrollmentCodeRequest{LifetimeSeconds: lifetimeSeconds}
+	if _, err := c.do(ctx, http.MethodPost, "/v1/hosts/"+pathSegment(hostID)+"/enrollment-code", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GetHost(ctx context.Context, id string) (*Host, error) {
+	var out Host
+	if _, err := c.do(ctx, http.MethodGet, "/v2/hosts/"+pathSegment(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) UpdateHost(ctx context.Context, id string, req HostUpdateRequest) (*Host, error) {
+	var out Host
+	if _, err := c.do(ctx, http.MethodPut, "/v3/hosts/"+pathSegment(id), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AddHostIPAddress gives an IPv4 address to a host that has none, such as one
+// created before its network had an IPv4 prefix.
+func (c *Client) AddHostIPAddress(ctx context.Context, id, address string) (*Host, error) {
+	var out Host
+	if _, err := c.do(ctx, http.MethodPost, "/v2/hosts/"+pathSegment(id)+"/ip-addresses", nil, HostAddIPRequest{IPAddress: address}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteHost(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/v1/hosts/"+pathSegment(id), nil, nil, nil)
+	return err
+}
+
+func (c *Client) ListHosts(ctx context.Context) ([]Host, error) {
+	return listAll[Host](ctx, c, "/v2/hosts")
+}

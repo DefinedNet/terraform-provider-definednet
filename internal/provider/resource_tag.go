@@ -391,6 +391,13 @@ func optionalString(s types.String) *string {
 	return s.ValueStringPointer()
 }
 
+func optionalInt64(i types.Int64) *int64 {
+	if i.IsNull() || i.IsUnknown() {
+		return nil
+	}
+	return i.ValueInt64Pointer()
+}
+
 // nonNilStrings turns a nil slice into an empty one so a null API array and
 // an empty one both land in state as an empty set.
 func nonNilStrings(s []string) []string {

@@ -22,6 +22,7 @@ type testStep struct {
 	// importStateID imports this ID instead of the one Terraform created.
 	importStateID string
 	planChecks    []plancheck.PlanCheck
+	destroy       bool
 	// preConfig runs before the step, for changes made behind Terraform's back.
 	preConfig func()
 }
@@ -44,7 +45,7 @@ func runUnitTest(t *testing.T, f *fakeAPI, steps []testStep) {
 func buildSteps(prefix string, steps []testStep) []resource.TestStep {
 	tfSteps := make([]resource.TestStep, 0, len(steps))
 	for _, s := range steps {
-		step := resource.TestStep{PreConfig: s.preConfig}
+		step := resource.TestStep{PreConfig: s.preConfig, Destroy: s.destroy}
 		if s.importState {
 			step.ResourceName = s.importResource
 			step.ImportState = true
