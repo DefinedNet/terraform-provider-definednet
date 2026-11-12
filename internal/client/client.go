@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,6 +71,9 @@ type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Path    string `json:"path,omitempty"`
+	// Key is the config override key at Path when Path names one, so the error
+	// says which override it is about instead of only its index.
+	Key string `json:"-"`
 }
 
 // APIError is returned for any non-2xx response.
@@ -95,7 +100,11 @@ func (e *APIError) Error() string {
 				p += ": " + d.Message
 			}
 			if d.Path != "" {
-				p += " (" + d.Path + ")"
+				if d.Key != "" {
+					p += fmt.Sprintf(" (%s %q)", d.Path, d.Key)
+				} else {
+					p += " (" + d.Path + ")"
+				}
 			}
 			parts = append(parts, p)
 		}
@@ -216,6 +225,9 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 		if json.Unmarshal(respBody, &errEnv) == nil {
 			apiErr.Errors = errEnv.Errors
+			for i, d := range apiErr.Errors {
+				apiErr.Errors[i].Key = overrideKeyAt(payload, d.Path)
+			}
 		}
 		lastErr = apiErr
 
@@ -233,6 +245,30 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 	}
 	return nil, lastErr
+}
+
+// overrideKeyPath matches the error path of a config override key in a tag
+// (configOverrides) or network (overrides) request body. Other fields are
+// never echoed, since they can be secrets.
+var overrideKeyPath = regexp.MustCompile(`^(configOverrides|overrides)\[(\d+)\]\.key$`)
+
+// overrideKeyAt returns the config override key the error path points at in
+// the request body, or "" if the path is not an override key.
+func overrideKeyAt(payload []byte, path string) string {
+	m := overrideKeyPath.FindStringSubmatch(path)
+	if m == nil {
+		return ""
+	}
+	var body map[string]json.RawMessage
+	var overrides []ConfigOverride
+	if json.Unmarshal(payload, &body) != nil || json.Unmarshal(body[m[1]], &overrides) != nil {
+		return ""
+	}
+	i, _ := strconv.Atoi(m[2])
+	if i >= len(overrides) {
+		return ""
+	}
+	return overrides[i].Key
 }
 
 // permanentTransportError reports a failure no retry can fix. Like
